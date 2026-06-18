@@ -1,40 +1,109 @@
 """3-stage LLM Council orchestration."""
 
-from typing import List, Dict, Any, Tuple
+import json
+import re
+import asyncio
+from typing import List, Dict, Any, Tuple, Optional
 from .openrouter import query_models_parallel, query_model
 from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
+from .prompts import (
+    PERSONA_SUGGESTION_PROMPT,
+    CONVERSATION_TITLE_PROMPT,
+    STAGE1_PERSONA_SYSTEM_PROMPT,
+    STAGE2_STANDARD_RANKING_PROMPT,
+    STAGE2_PERSONA_RANKING_PROMPT,
+    STAGE3_STANDARD_CHAIRMAN_PROMPT,
+    STAGE3_PERSONA_CHAIRMAN_PROMPT
+)
 
 
-async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
+async def stage1_collect_responses(
+    user_query: str,
+    mode: str = "standard",
+    personas: Optional[List[Dict[str, str]]] = None,
+    mapping_option: Optional[str] = "round_robin"
+) -> List[Dict[str, Any]]:
     """
     Stage 1: Collect individual responses from all council models.
 
     Args:
         user_query: The user's question
+        mode: "standard" or "persona"
+        personas: Optional list of personas
+        mapping_option: "round_robin" or "matrix"
 
     Returns:
-        List of dicts with 'model' and 'response' keys
+        List of dicts with 'model', 'response', and optional 'persona' keys
     """
-    messages = [{"role": "user", "content": user_query}]
+    if mode != "persona" or not personas:
+        messages = [{"role": "user", "content": user_query}]
 
-    # Query all models in parallel
-    responses = await query_models_parallel(COUNCIL_MODELS, messages)
+        # Query all models in parallel
+        responses = await query_models_parallel(COUNCIL_MODELS, messages)
 
-    # Format results
-    stage1_results = []
-    for model, response in responses.items():
-        if response is not None:  # Only include successful responses
-            stage1_results.append({
-                "model": model,
-                "response": response.get('content', '')
-            })
+        # Format results
+        stage1_results = []
+        for model, response in responses.items():
+            if response is not None:  # Only include successful responses
+                stage1_results.append({
+                    "model": model,
+                    "response": response.get('content', '')
+                })
 
-    return stage1_results
+        return stage1_results
+
+    # Persona flow
+    queries_to_make = []
+
+    if mapping_option == "round_robin":
+        # Option C: Assign personas sequentially across council models
+        for i, model in enumerate(COUNCIL_MODELS):
+            persona = personas[i % len(personas)]
+            system_prompt = STAGE1_PERSONA_SYSTEM_PROMPT.format(
+                persona_name=persona['name'],
+                persona_weightage=persona['weightage'],
+                persona_facets=persona['facets']
+            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_query}
+            ]
+            queries_to_make.append((model, persona['name'], messages))
+    else:  # "matrix"
+        # Option B: Every model answers from every persona's perspective
+        for persona in personas:
+            for model in COUNCIL_MODELS:
+                system_prompt = STAGE1_PERSONA_SYSTEM_PROMPT.format(
+                    persona_name=persona['name'],
+                    persona_weightage=persona['weightage'],
+                    persona_facets=persona['facets']
+                )
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_query}
+                ]
+                queries_to_make.append((model, persona['name'], messages))
+
+    # Query in parallel
+    async def query_with_metadata(model, persona_name, msgs):
+        res = await query_model(model, msgs)
+        return {
+            "model": model,
+            "persona": persona_name,
+            "response": res.get('content', '') if res else ''
+        }
+
+    futures = [query_with_metadata(m, p, msgs) for m, p, msgs in queries_to_make]
+    results = await asyncio.gather(*futures)
+
+    # Filter out empty responses
+    return [r for r in results if r["response"]]
 
 
 async def stage2_collect_rankings(
     user_query: str,
-    stage1_results: List[Dict[str, Any]]
+    stage1_results: List[Dict[str, Any]],
+    mode: str = "standard"
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
     Stage 2: Each model ranks the anonymized responses.
@@ -42,55 +111,46 @@ async def stage2_collect_rankings(
     Args:
         user_query: The original user query
         stage1_results: Results from Stage 1
+        mode: "standard" or "persona"
 
     Returns:
         Tuple of (rankings list, label_to_model mapping)
     """
     # Create anonymized labels for responses (Response A, Response B, etc.)
-    labels = [chr(65 + i) for i in range(len(stage1_results))]  # A, B, C, ...
+    labels = []
+    for i in range(len(stage1_results)):
+        if i < 26:
+            labels.append(chr(65 + i))  # A, B, C...
+        else:
+            labels.append(f"Z{i-25}")  # Fallback just in case
 
     # Create mapping from label to model name
-    label_to_model = {
-        f"Response {label}": result['model']
-        for label, result in zip(labels, stage1_results)
-    }
+    label_to_model = {}
+    for label, result in zip(labels, stage1_results):
+        model_name = result['model']
+        if result.get('persona'):
+            model_name = f"{model_name} ({result['persona']})"
+        label_to_model[f"Response {label}"] = model_name
 
     # Build the ranking prompt
-    responses_text = "\n\n".join([
-        f"Response {label}:\n{result['response']}"
-        for label, result in zip(labels, stage1_results)
-    ])
-
-    ranking_prompt = f"""You are evaluating different responses to the following question:
-
-Question: {user_query}
-
-Here are the responses from different models (anonymized):
-
-{responses_text}
-
-Your task:
-1. First, evaluate each response individually. For each response, explain what it does well and what it does poorly.
-2. Then, at the very end of your response, provide a final ranking.
-
-IMPORTANT: Your final ranking MUST be formatted EXACTLY as follows:
-- Start with the line "FINAL RANKING:" (all caps, with colon)
-- Then list the responses from best to worst as a numbered list
-- Each line should be: number, period, space, then ONLY the response label (e.g., "1. Response A")
-- Do not add any other text or explanations in the ranking section
-
-Example of the correct format for your ENTIRE response:
-
-Response A provides good detail on X but misses Y...
-Response B is accurate but lacks depth on Z...
-Response C offers the most comprehensive answer...
-
-FINAL RANKING:
-1. Response C
-2. Response A
-3. Response B
-
-Now provide your evaluation and ranking:"""
+    if mode == "persona":
+        responses_text = "\n\n".join([
+            f"Response {label} (Persona/Perspective: {result.get('persona', 'N/A')}):\n{result['response']}"
+            for label, result in zip(labels, stage1_results)
+        ])
+        ranking_prompt = STAGE2_PERSONA_RANKING_PROMPT.format(
+            user_query=user_query,
+            responses_text=responses_text
+        )
+    else:
+        responses_text = "\n\n".join([
+            f"Response {label}:\n{result['response']}"
+            for label, result in zip(labels, stage1_results)
+        ])
+        ranking_prompt = STAGE2_STANDARD_RANKING_PROMPT.format(
+            user_query=user_query,
+            responses_text=responses_text
+        )
 
     messages = [{"role": "user", "content": ranking_prompt}]
 
@@ -115,7 +175,8 @@ Now provide your evaluation and ranking:"""
 async def stage3_synthesize_final(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
-    stage2_results: List[Dict[str, Any]]
+    stage2_results: List[Dict[str, Any]],
+    mode: str = "standard"
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -124,37 +185,44 @@ async def stage3_synthesize_final(
         user_query: The original user query
         stage1_results: Individual model responses from Stage 1
         stage2_results: Rankings from Stage 2
+        mode: "standard" or "persona"
 
     Returns:
         Dict with 'model' and 'response' keys
     """
     # Build comprehensive context for chairman
-    stage1_text = "\n\n".join([
-        f"Model: {result['model']}\nResponse: {result['response']}"
-        for result in stage1_results
-    ])
+    if mode == "persona":
+        stage1_text = "\n\n".join([
+            f"Model: {result['model']} (Persona/Perspective: {result.get('persona', 'N/A')})\nResponse: {result['response']}"
+            for result in stage1_results
+        ])
 
-    stage2_text = "\n\n".join([
-        f"Model: {result['model']}\nRanking: {result['ranking']}"
-        for result in stage2_results
-    ])
+        stage2_text = "\n\n".join([
+            f"Model: {result['model']}\nRanking: {result['ranking']}"
+            for result in stage2_results
+        ])
 
-    chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
+        chairman_prompt = STAGE3_PERSONA_CHAIRMAN_PROMPT.format(
+            user_query=user_query,
+            stage1_text=stage1_text,
+            stage2_text=stage2_text
+        )
+    else:
+        stage1_text = "\n\n".join([
+            f"Model: {result['model']}\nResponse: {result['response']}"
+            for result in stage1_results
+        ])
 
-Original Question: {user_query}
+        stage2_text = "\n\n".join([
+            f"Model: {result['model']}\nRanking: {result['ranking']}"
+            for result in stage2_results
+        ])
 
-STAGE 1 - Individual Responses:
-{stage1_text}
-
-STAGE 2 - Peer Rankings:
-{stage2_text}
-
-Your task as Chairman is to synthesize all of this information into a single, comprehensive, accurate answer to the user's original question. Consider:
-- The individual responses and their insights
-- The peer rankings and what they reveal about response quality
-- Any patterns of agreement or disagreement
-
-Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
+        chairman_prompt = STAGE3_STANDARD_CHAIRMAN_PROMPT.format(
+            user_query=user_query,
+            stage1_text=stage1_text,
+            stage2_text=stage2_text
+        )
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
@@ -255,6 +323,59 @@ def calculate_aggregate_rankings(
     return aggregate
 
 
+async def suggest_personas(user_query: str) -> List[Dict[str, str]]:
+    """
+    Generate 3 expert personas (perspectives) for a given user query.
+
+    Args:
+        user_query: The user's question or problem description
+
+    Returns:
+        List of 3 dictionaries containing 'name', 'weightage', and 'facets'
+    """
+    prompt = PERSONA_SUGGESTION_PROMPT.format(user_query=user_query)
+    messages = [{"role": "user", "content": prompt}]
+    
+    # Query using gemini-2.5-flash
+    response = await query_model("google/gemini-2.5-flash", messages, timeout=45.0)
+    
+    default_personas = [
+        {
+            "name": "Technical Architect",
+            "weightage": "Focus heavily on software design patterns, complexity, robustness, and architectural scalability.",
+            "facets": "Considerations: Technical complexity, scaling constraints, framework choices. Note: This list is not exhaustive and should be thought through by the model."
+        },
+        {
+            "name": "User Experience Designer",
+            "weightage": "Focus heavily on user convenience, clarity of interaction, and cognitive load of the solution.",
+            "facets": "Considerations: User friction, simplicity, accessibility. Note: This list is not exhaustive and should be thought through by the model."
+        },
+        {
+            "name": "Product & Cost Analyst",
+            "weightage": "Focus heavily on execution cost, delivery timeline, maintenance overhead, and overall business value.",
+            "facets": "Considerations: Execution speed, API costs, maintenance complexity. Note: This list is not exhaustive and should be thought through by the model."
+        }
+    ]
+    
+    if response is None or not response.get('content'):
+        return default_personas
+        
+    content = response['content'].strip()
+    
+    # Clean JSON format
+    try:
+        # Strip markdown json code block if present
+        clean_content = re.sub(r'^```(?:json)?\s*', '', content)
+        clean_content = re.sub(r'\s*```$', '', clean_content)
+        data = json.loads(clean_content)
+        if "personas" in data and isinstance(data["personas"], list) and len(data["personas"]) == 3:
+            return data["personas"]
+    except Exception as e:
+        print(f"Error parsing generated personas JSON: {e}")
+        
+    return default_personas
+
+
 async def generate_conversation_title(user_query: str) -> str:
     """
     Generate a short title for a conversation based on the first user message.
@@ -265,12 +386,7 @@ async def generate_conversation_title(user_query: str) -> str:
     Returns:
         A short title (3-5 words)
     """
-    title_prompt = f"""Generate a very short title (3-5 words maximum) that summarizes the following question.
-The title should be concise and descriptive. Do not use quotes or punctuation in the title.
-
-Question: {user_query}
-
-Title:"""
+    title_prompt = CONVERSATION_TITLE_PROMPT.format(user_query=user_query)
 
     messages = [{"role": "user", "content": title_prompt}]
 
@@ -293,18 +409,31 @@ Title:"""
     return title
 
 
-async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
+async def run_full_council(
+    user_query: str,
+    mode: str = "standard",
+    personas: Optional[List[Dict[str, str]]] = None,
+    mapping_option: Optional[str] = "round_robin"
+) -> Tuple[List, List, Dict, Dict]:
     """
     Run the complete 3-stage council process.
 
     Args:
         user_query: The user's question
+        mode: "standard" or "persona"
+        personas: Optional list of personas
+        mapping_option: "round_robin" or "matrix"
 
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
     """
     # Stage 1: Collect individual responses
-    stage1_results = await stage1_collect_responses(user_query)
+    stage1_results = await stage1_collect_responses(
+        user_query,
+        mode=mode,
+        personas=personas,
+        mapping_option=mapping_option
+    )
 
     # If no models responded successfully, return error
     if not stage1_results:
@@ -314,7 +443,11 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
         }, {}
 
     # Stage 2: Collect rankings
-    stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results)
+    stage2_results, label_to_model = await stage2_collect_rankings(
+        user_query,
+        stage1_results,
+        mode=mode
+    )
 
     # Calculate aggregate rankings
     aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
@@ -323,7 +456,8 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
     stage3_result = await stage3_synthesize_final(
         user_query,
         stage1_results,
-        stage2_results
+        stage2_results,
+        mode=mode
     )
 
     # Prepare metadata

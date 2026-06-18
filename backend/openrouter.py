@@ -5,10 +5,16 @@ from typing import List, Dict, Any, Optional
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
 
 
+import asyncio
+
+# Global semaphore to limit concurrent requests to OpenRouter (prevents 429 rate limits)
+OPENROUTER_SEMAPHORE = asyncio.Semaphore(3)
+
+
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 120.0
+    timeout: float = 30.0
 ) -> Optional[Dict[str, Any]]:
     """
     Query a single model via OpenRouter API.
@@ -32,21 +38,22 @@ async def query_model(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                OPENROUTER_API_URL,
-                headers=headers,
-                json=payload
-            )
-            response.raise_for_status()
+        async with OPENROUTER_SEMAPHORE:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    OPENROUTER_API_URL,
+                    headers=headers,
+                    json=payload
+                )
+                response.raise_for_status()
 
-            data = response.json()
-            message = data['choices'][0]['message']
+                data = response.json()
+                message = data['choices'][0]['message']
 
-            return {
-                'content': message.get('content'),
-                'reasoning_details': message.get('reasoning_details')
-            }
+                return {
+                    'content': message.get('content'),
+                    'reasoning_details': message.get('reasoning_details')
+                }
 
     except Exception as e:
         print(f"Error querying model {model}: {e}")

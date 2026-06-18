@@ -2,6 +2,10 @@
 
 # LLM Council - Start script
 
+export PATH="$HOME/.local/bin:$PATH"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
 echo "Starting LLM Council..."
 echo ""
 
@@ -20,9 +24,10 @@ npm run dev &
 FRONTEND_PID=$!
 
 echo ""
+LOCAL_IP=$(hostname -I | awk '{print $1}')
 echo "✓ LLM Council is running!"
-echo "  Backend:  http://localhost:8001"
-echo "  Frontend: http://localhost:5173"
+echo "  Backend:  http://localhost:8001 (or http://$LOCAL_IP:8001)"
+echo "  Frontend: http://localhost:5173 (or http://$LOCAL_IP:5173)"
 echo ""
 echo "Press Ctrl+C to stop both servers"
 

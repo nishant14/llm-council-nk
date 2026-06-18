@@ -76,3 +76,32 @@
   color: #999;
   font-size: 12px;
 }
+
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid #e0e0e0;
+  background: #f8f8f8;
+}
+
+.user-guide-link-btn {
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  border: 1px dashed #4a90e2;
+  border-radius: 6px;
+  color: #4a90e2;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.user-guide-link-btn:hover, .user-guide-link-btn.active {
+  background: #e8f0fe;
+  border-style: solid;
+  color: #357abd;
+}

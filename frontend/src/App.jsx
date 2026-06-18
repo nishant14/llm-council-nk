@@ -15,10 +15,11 @@ function App() {
     loadConversations();
   }, []);
 
-  // Load conversation details when selected
   useEffect(() => {
     if (currentConversationId) {
       loadConversation(currentConversationId);
+    } else {
+      setCurrentConversation(null);
     }
   }, [currentConversationId]);
 
@@ -57,8 +58,10 @@ function App() {
     setCurrentConversationId(id);
   };
 
-  const handleSendMessage = async (content) => {
+  const handleSendMessage = async (content, options = {}) => {
     if (!currentConversationId) return;
+
+    const { mode = 'standard', personas = null, mappingOption = 'round_robin' } = options;
 
     setIsLoading(true);
     try {
@@ -90,7 +93,7 @@ function App() {
       }));
 
       // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
+      await api.sendMessageStream(currentConversationId, content, mode, personas, mappingOption, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
             setCurrentConversation((prev) => {
@@ -163,6 +166,16 @@ function App() {
 
           case 'error':
             console.error('Stream error:', event.message);
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              if (messages.length > 0) {
+                const lastMsg = { ...messages[messages.length - 1] };
+                lastMsg.error = event.message || 'Stream error occurred';
+                lastMsg.loading = { stage1: false, stage2: false, stage3: false };
+                messages[messages.length - 1] = lastMsg;
+              }
+              return { ...prev, messages };
+            });
             setIsLoading(false);
             break;
 
@@ -172,11 +185,16 @@ function App() {
       });
     } catch (error) {
       console.error('Failed to send message:', error);
-      // Remove optimistic messages on error
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: prev.messages.slice(0, -2),
-      }));
+      setCurrentConversation((prev) => {
+        const messages = [...prev.messages];
+        if (messages.length >= 2) {
+          const lastMsg = { ...messages[messages.length - 1] };
+          lastMsg.error = error.message || 'Failed to connect to the server';
+          lastMsg.loading = { stage1: false, stage2: false, stage3: false };
+          messages[messages.length - 1] = lastMsg;
+        }
+        return { ...prev, messages };
+      });
       setIsLoading(false);
     }
   };
@@ -188,11 +206,14 @@ function App() {
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        onShowUserGuide={() => setCurrentConversationId(null)}
       />
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
+        onShowUserGuide={() => setCurrentConversationId(null)}
+        onStartNewConversation={handleNewConversation}
       />
     </div>
   );

@@ -2,7 +2,7 @@
  * API client for the LLM Council backend.
  */
 
-const API_BASE = 'http://localhost:8001';
+const API_BASE = '';
 
 export const api = {
   /**
@@ -67,13 +67,33 @@ export const api = {
   },
 
   /**
+   * Suggest 3 expert personas for a prompt.
+   */
+  async suggestPersonas(content) {
+    const response = await fetch(`${API_BASE}/api/suggest-personas`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to suggest personas');
+    }
+    return response.json();
+  },
+
+  /**
    * Send a message and receive streaming updates.
    * @param {string} conversationId - The conversation ID
    * @param {string} content - The message content
+   * @param {string} mode - The mode ('standard' or 'persona')
+   * @param {Array} personas - The list of custom personas
+   * @param {string} mappingOption - Model mapping option ('round_robin' or 'matrix')
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, onEvent) {
+  async sendMessageStream(conversationId, content, mode, personas, mappingOption, onEvent) {
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
@@ -81,7 +101,12 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({
+          content,
+          mode,
+          personas,
+          mapping_option: mappingOption
+        }),
       }
     );
 
@@ -91,25 +116,52 @@ export const api = {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        } else if (done) {
+          buffer += decoder.decode();
+        }
 
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
+        const lines = buffer.split('\n');
+        // Keep the last item in the buffer (which is incomplete until the next chunk)
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          try {
-            const event = JSON.parse(data);
-            onEvent(event.type, event);
-          } catch (e) {
-            console.error('Failed to parse SSE event:', e);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            const data = trimmed.slice(6);
+            try {
+              const event = JSON.parse(data);
+              onEvent(event.type, event);
+            } catch (e) {
+              console.error('Failed to parse SSE event:', e, 'Line:', line);
+            }
           }
         }
+
+        if (done) {
+          // Process any leftover content in the buffer
+          const trimmed = buffer.trim();
+          if (trimmed.startsWith('data: ')) {
+            const data = trimmed.slice(6);
+            try {
+              const event = JSON.parse(data);
+              onEvent(event.type, event);
+            } catch (e) {
+              console.error('Failed to parse final SSE event:', e, 'Buffer:', buffer);
+            }
+          }
+          break;
+        }
       }
+    } finally {
+      reader.releaseLock();
     }
   },
 };

@@ -6,6 +6,7 @@ export default function Sidebar({
   currentConversationId,
   onSelectConversation,
   onNewConversation,
+  onShowUserGuide,
 }) {
   return (
     <div className="sidebar">
@@ -37,6 +38,15 @@ export default function Sidebar({
             </div>
           ))
         )}
+      </div>
+
+      <div className="sidebar-footer">
+        <button 
+          className={`user-guide-link-btn ${currentConversationId === null ? 'active' : ''}`} 
+          onClick={onShowUserGuide}
+        >
+          📖 User Guide
+        </button>
       </div>
     </div>
   );
