@@ -2,7 +2,7 @@
  * API client for the LLM Council backend.
  */
 
-const API_BASE = '';
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 export const api = {
   /**

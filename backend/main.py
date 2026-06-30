@@ -3,11 +3,14 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+from pathlib import Path
 import uuid
 import json
 import asyncio
+import os
 
 from . import storage
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings, suggest_personas
@@ -57,8 +60,8 @@ class Conversation(BaseModel):
     messages: List[Dict[str, Any]]
 
 
-@app.get("/")
-async def root():
+@app.get("/healthz")
+async def healthz():
     """Health check endpoint."""
     return {"status": "ok", "service": "LLM Council API"}
 
@@ -261,6 +264,31 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
     )
 
 
+# Serve the production frontend build (frontend/dist), if present. Guarded so
+# local dev (where the frontend isn't built) doesn't fail to start.
+_frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _frontend_dist.is_dir():
+    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="static")
+
+# When deployed behind a reverse proxy at a sub-path (e.g. nginx serving this
+# app under /content/), set DEPLOY_PREFIX so the app natively understands and
+# serves everything under that prefix, with no path rewriting needed in nginx.
+# Local dev leaves this unset and is unaffected.
+# To be tested: only verified locally with curl (incl. simulated
+# X-Forwarded-Proto); not yet exercised through the real nginx + tunnel path.
+DEPLOY_PREFIX = os.getenv("DEPLOY_PREFIX", "")
+asgi_app = app
+if DEPLOY_PREFIX:
+    root_app = FastAPI()
+    root_app.mount(DEPLOY_PREFIX, app)
+    asgi_app = root_app
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(
+        asgi_app,
+        host="0.0.0.0",
+        port=8001,
+        forwarded_allow_ips="*" if DEPLOY_PREFIX else None,
+    )
