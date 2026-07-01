@@ -297,7 +297,8 @@
   letter-spacing: 0.5px;
 }
 
-.card-field input {
+.card-field input,
+.card-field select {
   padding: 8px 12px;
   border: 1px solid #d0d0d0;
   border-radius: 6px;
@@ -305,12 +306,34 @@
   color: #333;
   font-weight: 600;
   outline: none;
+  font-family: inherit;
+  background: #fff;
 }
 
 .card-field input:focus,
+.card-field select:focus,
 .card-field textarea:focus {
   border-color: #4a90e2;
   box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.1);
+}
+
+.weight-total {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.weight-total.valid {
+  color: #2e7d32;
+  background: #edf7ed;
+  border: 1px solid #c8e6c9;
+}
+
+.weight-total.invalid {
+  color: #d32f2f;
+  background: #ffebee;
+  border: 1px solid #ffcdd2;
 }
 
 .card-field textarea {

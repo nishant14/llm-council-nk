@@ -159,6 +159,25 @@ def add_assistant_message(
     save_conversation(conversation)
 
 
+def delete_conversation(conversation_id: str) -> bool:
+    """
+    Delete a conversation from storage.
+
+    Args:
+        conversation_id: Conversation identifier
+
+    Returns:
+        True if the conversation was deleted, False if it didn't exist
+    """
+    path = get_conversation_path(conversation_id)
+
+    if not os.path.exists(path):
+        return False
+
+    os.remove(path)
+    return True
+
+
 def update_conversation_title(conversation_id: str, title: str):
     """
     Update the title of a conversation.

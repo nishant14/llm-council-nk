@@ -70,14 +70,14 @@ export default function UserGuide({ onStartNew }) {
               <div className="mode-icon">🔄</div>
               <h3>Option C: Round-Robin</h3>
               <p>
-                Sequentially distributes the 3 personas across the 4 council models. Faster (4 queries total) and highly efficient.
+                You assign one model to each persona (one query per persona — the same model can be assigned to more than one persona). Fast and efficient.
               </p>
             </div>
             <div className="mode-card">
               <div className="mode-icon">🎛️</div>
               <h3>Option B: All-to-All Matrix</h3>
               <p>
-                Every model answers from every persona's perspective (12 queries total). Provides absolute diversity of thought but uses more API requests.
+                Every distinct model you've assigned answers from every persona's perspective. Provides full comparative coverage but multiplies API usage.
               </p>
             </div>
           </div>

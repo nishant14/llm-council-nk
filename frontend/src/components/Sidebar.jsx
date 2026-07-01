@@ -7,7 +7,15 @@ export default function Sidebar({
   onSelectConversation,
   onNewConversation,
   onShowUserGuide,
+  onDeleteConversation,
 }) {
+  const handleDelete = (e, conv) => {
+    e.stopPropagation();
+    if (window.confirm(`Delete "${conv.title || 'New Conversation'}"? This can't be undone.`)) {
+      onDeleteConversation(conv.id);
+    }
+  };
+
   return (
     <div className="sidebar">
       <div className="sidebar-header">
@@ -29,11 +37,23 @@ export default function Sidebar({
               }`}
               onClick={() => onSelectConversation(conv.id)}
             >
-              <div className="conversation-title">
-                {conv.title || 'New Conversation'}
-              </div>
-              <div className="conversation-meta">
-                {conv.message_count} messages
+              <div className="conversation-item-row">
+                <div className="conversation-item-main">
+                  <div className="conversation-title">
+                    {conv.title || 'New Conversation'}
+                  </div>
+                  <div className="conversation-meta">
+                    {conv.message_count} messages
+                  </div>
+                </div>
+                <button
+                  className="conversation-delete-btn"
+                  onClick={(e) => handleDelete(e, conv)}
+                  title="Delete conversation"
+                  aria-label="Delete conversation"
+                >
+                  ×
+                </button>
               </div>
             </div>
           ))

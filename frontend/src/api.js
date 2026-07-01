@@ -67,6 +67,31 @@ export const api = {
   },
 
   /**
+   * Delete a conversation.
+   */
+  async deleteConversation(conversationId) {
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}`,
+      { method: 'DELETE' }
+    );
+    if (!response.ok) {
+      throw new Error('Failed to delete conversation');
+    }
+    return response.json();
+  },
+
+  /**
+   * List the council models available for selection.
+   */
+  async getAvailableModels() {
+    const response = await fetch(`${API_BASE}/api/available-models`);
+    if (!response.ok) {
+      throw new Error('Failed to load available models');
+    }
+    return response.json();
+  },
+
+  /**
    * Suggest 3 expert personas for a prompt.
    */
   async suggestPersonas(content) {

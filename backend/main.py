@@ -13,6 +13,7 @@ import asyncio
 import os
 
 from . import storage
+from .config import PERSONA_MODEL_CHOICES
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings, suggest_personas
 
 app = FastAPI(title="LLM Council API")
@@ -97,6 +98,21 @@ async def get_conversation(conversation_id: str):
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
+
+
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    """Delete a conversation."""
+    deleted = storage.delete_conversation(conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "deleted", "id": conversation_id}
+
+
+@app.get("/api/available-models")
+async def available_models():
+    """List the models a user can pick from for each Persona Council persona, grouped by cost tier."""
+    return {"council_models": PERSONA_MODEL_CHOICES}
 
 
 @app.post("/api/conversations/{conversation_id}/message")
@@ -195,12 +211,18 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             stage1_results = await stage1_task
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
-            # Stage 2: Collect rankings
+            # Stage 2: Collect rankings. In persona mode, rank with the
+            # deduplicated set of models actually used in Stage 1.
+            stage2_council_models = None
+            if request.mode == "persona":
+                stage2_council_models = list(dict.fromkeys(r['model'] for r in stage1_results))
+
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
             stage2_task = asyncio.create_task(stage2_collect_rankings(
                 request.content,
                 stage1_results,
-                mode=request.mode
+                mode=request.mode,
+                council_models=stage2_council_models
             ))
             while not stage2_task.done():
                 yield ": keep-alive\n\n"

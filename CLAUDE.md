@@ -13,7 +13,8 @@ There is also an optional **Persona Council mode** (a Stage 0 added on top of th
 ### Backend Structure (`backend/`)
 
 **`config.py`**
-- Contains `COUNCIL_MODELS` (list of OpenRouter model identifiers)
+- Contains `COUNCIL_MODELS` (list of OpenRouter model identifiers) — this is the fixed set queried in **Standard mode**
+- Contains `PERSONA_MODEL_CHOICES`: a separate, larger list of `{id, tier}` dicts (`tier` is a coarse OpenRouter pricing bucket: `low` < $1/M blended tokens, `medium` $1-$10, `max` > $10) used to populate the per-persona model dropdown in **Persona mode**. Changing this list does not affect Standard mode. Served to the frontend via `GET /api/available-models`.
 - Contains `CHAIRMAN_MODEL` (model that synthesizes final answer)
 - Uses environment variable `OPENROUTER_API_KEY` from `.env`
 - Backend runs on **port 8001** (NOT 8000 - user had another app on 8000)
@@ -25,21 +26,24 @@ There is also an optional **Persona Council mode** (a Stage 0 added on top of th
 - Graceful degradation: returns None on failure, continues with successful responses
 
 **`council.py`** - The Core Logic
+- Persona dicts carry both a text field `weightage` (free-text focus/instructions, shown in the Stage1 system prompt) and a separate numeric `weight` (0-1, all personas' weights should sum to 1 — see Stage 3 below) plus a `model` field (an OpenRouter id from `PERSONA_MODEL_CHOICES`, chosen per-persona by the user in the UI). Don't confuse `weightage` (text) with `weight` (number) — they're independent fields serving different prompts.
 - `stage1_collect_responses(user_query, mode, personas, mapping_option)`: Parallel queries to all council models
   - Standard mode (`mode != "persona"`): one plain user-message query per council model
-  - Persona mode (`mode == "persona"`, requires `personas`): each query gets a `STAGE1_PERSONA_SYSTEM_PROMPT` system message built from a persona's `name`/`weightage`/`facets`. Two distribution strategies via `mapping_option`:
-    - `"round_robin"` (Option C, default): each council model gets exactly one persona (`personas[i % len(personas)]`) → same query count as standard mode (4 queries)
-    - `"matrix"` (Option B): every model answers from every persona's perspective → `len(personas) * len(COUNCIL_MODELS)` queries (12 with the default config)
-- `stage2_collect_rankings()`:
+  - Persona mode (`mode == "persona"`, requires `personas`): each query gets a `STAGE1_PERSONA_SYSTEM_PROMPT` system message built from a persona's `name`/`weightage`/`facets`. Each persona is queried against **its own assigned `model`** (defaults to round-robin over `COUNCIL_MODELS` if a persona has no `model` set, e.g. old callers like the smoke test). Two distribution strategies via `mapping_option`:
+    - `"round_robin"` (Option C, default): one query per persona, sent to that persona's assigned model → query count == number of personas (3 by default), NOT tied to `len(COUNCIL_MODELS)`
+    - `"matrix"` (Option B): every *distinct* model assigned across the personas answers from every persona's perspective → `len(personas) * len(distinct assigned models)` queries — no longer a fixed 12, since the model set is now user-chosen per persona
+  - Each Stage 1 result includes `persona_weight` (copied from the persona's numeric `weight`) alongside `model`/`persona`/`response`, for use in Stage 3.
+- `stage2_collect_rankings(user_query, stage1_results, mode, council_models=None)`:
   - Anonymizes responses as "Response A, B, C, etc."
   - Creates `label_to_model` mapping for de-anonymization (in persona mode, model names are suffixed with `(persona name)`)
   - Prompts models to evaluate and rank (with strict format requirements); uses `STAGE2_PERSONA_RANKING_PROMPT` instead of `STAGE2_STANDARD_RANKING_PROMPT` when `mode == "persona"`
+  - `council_models` param controls which models perform the ranking; defaults to the full `COUNCIL_MODELS` when omitted. **In persona mode, callers (`main.py`'s streaming endpoint and `run_full_council()`) pass the deduplicated set of models actually used in Stage 1** (`dict.fromkeys(r['model'] for r in stage1_results)`), not the static `COUNCIL_MODELS` list — this matters now that persona mode can use arbitrary user-chosen models that may not even be in `COUNCIL_MODELS`.
   - Returns tuple: (rankings_list, label_to_model_dict)
   - Each ranking includes both raw text and `parsed_ranking` list
-- `stage3_synthesize_final()`: Chairman synthesizes from all responses + rankings; uses `STAGE3_PERSONA_CHAIRMAN_PROMPT` in persona mode (explicitly asked to resolve trade-offs/conflicts between perspectives)
-- `suggest_personas(user_query)`: Stage 0 for persona mode. Always calls `google/gemini-2.5-flash` (hardcoded, independent of `CHAIRMAN_MODEL`) with `PERSONA_SUGGESTION_PROMPT`, expects a JSON object with exactly 3 personas (`name`, `weightage`, `facets`). Falls back to 3 hardcoded default personas (Technical Architect / UX Designer / Product & Cost Analyst) if the call fails or JSON parsing fails.
+- `stage3_synthesize_final()`: Chairman synthesizes from all responses + rankings; uses `STAGE3_PERSONA_CHAIRMAN_PROMPT` in persona mode, which now surfaces each persona's numeric `Weight` (0-1) to the chairman and explicitly instructs it to proportionally emphasize higher-weighted perspectives (while still substantively addressing lower-weighted ones) when resolving trade-offs/conflicts between perspectives
+- `suggest_personas(user_query)`: Stage 0 for persona mode. Always calls `google/gemini-2.5-flash` (hardcoded, independent of `CHAIRMAN_MODEL`) with `PERSONA_SUGGESTION_PROMPT`, expects a JSON object with exactly 3 personas (`name`, `weightage`, `facets`). Falls back to 3 hardcoded default personas (Technical Architect / UX Designer / Product & Cost Analyst) if the call fails or JSON parsing fails. Does NOT set `model`/`weight` — the frontend fills those in with defaults (see `ChatInterface.jsx` below) after the API call returns.
 - `generate_conversation_title(user_query)`: Also hardcoded to `google/gemini-2.5-flash`. Generates a 3-5 word title from the first user message; truncates to 50 chars; falls back to "New Conversation" on failure.
-- `run_full_council()`: Non-streaming convenience wrapper that runs stages 1→3 sequentially and returns `(stage1_results, stage2_results, stage3_result, metadata)`. The streaming endpoint in `main.py` does NOT call this — it calls the individual stage functions directly so it can emit SSE events between stages.
+- `run_full_council()`: Non-streaming convenience wrapper that runs stages 1→3 sequentially and returns `(stage1_results, stage2_results, stage3_result, metadata)`. The streaming endpoint in `main.py` does NOT call this — it calls the individual stage functions directly so it can emit SSE events between stages. Both paths independently compute and pass the same deduplicated `council_models` into Stage 2 for persona mode.
 - `parse_ranking_from_text()`: Extracts "FINAL RANKING:" section, handles both numbered lists and plain format
 - `calculate_aggregate_rankings()`: Computes average rank position across all peer evaluations
 
@@ -52,11 +56,14 @@ There is also an optional **Persona Council mode** (a Stage 0 added on top of th
 - JSON-based conversation storage in `data/conversations/`
 - Each conversation: `{id, created_at, title, messages[]}`
 - Assistant messages contain: `{role, stage1, stage2, stage3, metadata}` — metadata (label_to_model, aggregate_rankings, mode, personas, mapping_option) IS persisted to storage via `add_assistant_message()`, contrary to older assumptions in this file
+- `delete_conversation(conversation_id)`: removes the conversation's JSON file from disk; returns `False` if it didn't exist (used by `DELETE /api/conversations/{id}`)
 
 **`main.py`**
 - FastAPI app with CORS enabled for all origins (`allow_origins=["*"]`)
 - POST `/api/conversations/{id}/message`: blocking endpoint, calls `run_full_council()`, returns `{stage1, stage2, stage3, metadata}` in one response
-- POST `/api/conversations/{id}/message/stream`: **primary endpoint used by the frontend.** Server-Sent Events; runs each stage as an `asyncio.Task` and yields `: keep-alive` comments every 2s while waiting so the connection doesn't time out. Event sequence: `stage1_start` → `stage1_complete` → `stage2_start` → `stage2_complete` (includes `label_to_model`/`aggregate_rankings` in `metadata`) → `stage3_start` → `stage3_complete` → (`title_complete` if first message) → `complete`. Emits `error` event and stops on exception. Saves the full assistant message (with metadata) to storage only after all stages finish.
+- POST `/api/conversations/{id}/message/stream`: **primary endpoint used by the frontend.** Server-Sent Events; runs each stage as an `asyncio.Task` and yields `: keep-alive` comments every 2s while waiting so the connection doesn't time out. Event sequence: `stage1_start` → `stage1_complete` → `stage2_start` → `stage2_complete` (includes `label_to_model`/`aggregate_rankings` in `metadata`) → `stage3_start` → `stage3_complete` → (`title_complete` if first message) → `complete`. Emits `error` event and stops on exception. Saves the full assistant message (with metadata) to storage only after all stages finish. In persona mode, computes the deduplicated Stage 1 model set and passes it as `council_models` into `stage2_collect_rankings()` (see `council.py` notes above).
+- DELETE `/api/conversations/{id}`: removes a conversation via `storage.delete_conversation()`; 404 if not found
+- GET `/api/available-models`: returns `{council_models: PERSONA_MODEL_CHOICES}` — powers the per-persona model dropdown on the frontend
 - POST `/api/suggest-personas`: calls `suggest_personas()`, used by the frontend's persona-mode Step 1→2 transition
 - Request body for both message endpoints: `{content, mode: "standard"|"persona", personas: [...]|null, mapping_option: "round_robin"|"matrix"}`
 
@@ -66,17 +73,25 @@ There is also an optional **Persona Council mode** (a Stage 0 added on top of th
 - Main orchestration: manages conversations list and current conversation
 - `handleSendMessage()` drives the SSE stream (via `api.sendMessageStream`) and progressively patches the in-flight assistant message's `stage1`/`stage2`/`stage3`/`metadata`/`loading` fields as each SSE event arrives — this is what powers the per-stage spinners in the UI
 - Metadata received over SSE is stored in UI state for display AND is persisted backend-side (see `storage.py` note above)
+- `handleDeleteConversation()`: calls `api.deleteConversation()`, removes the conversation from local state, and clears `currentConversationId` if the deleted conversation was the active one
 
 **`api.js`**
 - `sendMessageStream()` manually parses the SSE response body (`ReadableStream` + `TextDecoder`), buffering partial lines and dispatching `onEvent(type, event)` for each `data: ...` line
 - Also exposes non-streaming `sendMessage()` (hits `/message`) and `suggestPersonas()` (hits `/api/suggest-personas`), though the UI only uses the streaming path for sending messages
+- `deleteConversation()` (DELETE `/api/conversations/{id}`) and `getAvailableModels()` (GET `/api/available-models`)
 
 **`components/ChatInterface.jsx`**
 - Multiline textarea (3 rows, resizable)
 - Enter to send, Shift+Enter for new line
 - User messages wrapped in markdown-content class for padding
-- Drives the **Persona Council mode flow**: mode selector (Standard vs Persona) is only shown for the first message in a conversation. In persona mode: Step 1 (enter query) → "Suggest Personas" button calls `api.suggestPersonas()` → Step 2 shows editable persona cards (name/weightage/facets) plus a round-robin vs matrix radio choice → "Run Council" calls `onSendMessage` with `{mode: 'persona', personas, mappingOption}`
+- Drives the **Persona Council mode flow**: mode selector (Standard vs Persona) is only shown for the first message in a conversation. In persona mode: Step 1 (enter query) → "Suggest Personas" button calls `api.suggestPersonas()` → Step 2 shows editable persona cards (name/weightage/facets, **plus per-persona model dropdown and numeric weight input**) and a round-robin vs matrix radio choice → "Run Council" calls `onSendMessage` with `{mode: 'persona', personas, mappingOption}`
+- Loads `api.getAvailableModels()` on mount into `availableModels` state; the model `<select>` groups options into `<optgroup>`s by cost tier (Low/Medium/Max, from `PERSONA_MODEL_CHOICES`' `tier` field)
+- `withDefaults()`: when personas come back from `suggestPersonas()`, fills in a default `model` (round-robins over `availableModels`) and a default numeric `weight` (evenly split across personas, e.g. 0.33/0.33/0.34) for any persona missing one — user edits from there
+- Weight validation: `isWeightValid` requires all personas' `weight` fields to sum to 1.00 (±0.01); "Run Council" is disabled and the total-weight display turns red/invalid until it does
 - Once a conversation has its first message, mode/personas are locked in for that conversation — only the first message can choose mode
+
+**`components/Sidebar.jsx`**
+- Each conversation row has a delete (`×`) button; `window.confirm()` before calling `onDeleteConversation(conv.id)` (wired to `App.jsx`'s `handleDeleteConversation`). Click is `stopPropagation()`-ed so it doesn't also trigger conversation selection.
 
 **`components/Stage1.jsx`**
 - Tab view of individual model responses
@@ -105,13 +120,16 @@ There is also an optional **Persona Council mode** (a Stage 0 added on top of th
 ### Stage 2 Prompt Format
 The Stage 2 prompt is very specific to ensure parseable output:
 ```
-1. Evaluate each response individually first
-2. Provide "FINAL RANKING:" header
-3. Numbered list format: "1. Response C", "2. Response A", etc.
-4. No additional text after ranking section
+1. Score each response 1-5 on three criteria (accuracy/correctness, depth & completeness,
+   actionability/practical value), each with a one-line justification
+2. Explicit anti-bias instruction: don't favor length/elaborate style over substance, and
+   don't assume/favor any response as "your own" even though anonymized
+3. Provide "FINAL RANKING:" header, informed by the scoring above
+4. Numbered list format: "1. Response C", "2. Response A", etc.
+5. No additional text after ranking section
 ```
 
-This strict format allows reliable parsing while still getting thoughtful evaluations.
+This strict format allows reliable parsing while still getting thoughtful evaluations. The three named criteria and their exact wording live in `STAGE2_STANDARD_RANKING_PROMPT`/`STAGE2_PERSONA_RANKING_PROMPT` in `prompts.py` — edit there, not `council.py`, to tweak the rubric.
 
 ### De-anonymization Strategy
 - Models receive: "Response A", "Response B", etc.
@@ -164,7 +182,8 @@ Models are hardcoded in `backend/config.py`. Chairman can be same or different f
 2. **CORS Issues**: Frontend must match allowed origins in `main.py` CORS middleware (currently wide open with `allow_origins=["*"]`)
 3. **Ranking Parse Failures**: If models don't follow format, fallback regex extracts any "Response X" patterns in order
 4. **Persona/title generation are hardcoded to Gemini**: `suggest_personas()` and `generate_conversation_title()` both call `google/gemini-2.5-flash` directly rather than `CHAIRMAN_MODEL` — changing `CHAIRMAN_MODEL` in `config.py` does NOT change which model suggests personas or titles
-5. **Matrix mode cost**: persona mode with `mapping_option: "matrix"` multiplies Stage 1 queries to `len(personas) * len(COUNCIL_MODELS)` (12 by default) — worth flagging to users before they pick it on a large council
+5. **Matrix mode cost**: persona mode with `mapping_option: "matrix"` multiplies Stage 1 queries to `len(personas) * len(distinct models assigned across personas)` — since models are now user-chosen per persona (not the fixed `COUNCIL_MODELS`), this is no longer a fixed number (previously 12) and can be larger or smaller depending on how many distinct models the user picks — worth flagging to users before they pick it
+6. **Persona `weight` must sum to 1.00**: the frontend blocks "Run Council" until the numeric `weight` fields across all persona cards sum to 1.00 (±0.01); if you're constructing persona payloads outside the UI (e.g. via the API directly or in `scratch/test_persona_council.py`), remember to set both `weight` (numeric) and `model` yourself — `suggest_personas()` doesn't set either
 
 ## Future Enhancement Ideas
 
@@ -184,12 +203,15 @@ Models are hardcoded in `backend/config.py`. Chairman can be same or different f
 ```
 User Query
     ↓ (mode: standard | persona)
-[Persona mode only] Stage 0: suggest_personas() → 3 personas (name/weightage/facets), user edits in UI
+[Persona mode only] Stage 0: suggest_personas() → 3 personas (name/weightage/facets), user assigns a model
+                    + numeric weight to each and edits in UI (frontend fills sensible defaults)
     ↓
 Stage 1: Parallel queries → [individual responses]
-         (standard: 1 query/model | persona round-robin: 1 query/model | persona matrix: personas × models)
+         (standard: 1 query/model | persona round-robin: 1 query/persona, sent to that persona's assigned
+          model | persona matrix: personas × distinct assigned models)
     ↓
-Stage 2: Anonymize → Parallel ranking queries → [evaluations + parsed rankings]
+Stage 2: Anonymize → Parallel ranking queries (ranked by the deduplicated set of models actually used
+          in Stage 1, in persona mode) → [evaluations + parsed rankings]
     ↓
 Aggregate Rankings Calculation → [sorted by avg position]
     ↓

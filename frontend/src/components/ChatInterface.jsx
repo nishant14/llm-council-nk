@@ -21,6 +21,7 @@ export default function ChatInterface({
   const [mappingOption, setMappingOption] = useState('round_robin'); // 'round_robin' or 'matrix'
   const [isSuggestingPersonas, setIsSuggestingPersonas] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [availableModels, setAvailableModels] = useState([]);
 
   const messagesEndRef = useRef(null);
 
@@ -32,6 +33,13 @@ export default function ChatInterface({
     scrollToBottom();
   }, [conversation]);
 
+  // Load the list of council models available for the persona model dropdown
+  useEffect(() => {
+    api.getAvailableModels()
+      .then((result) => setAvailableModels(result.council_models || []))
+      .catch((err) => console.error('Failed to load available models:', err));
+  }, []);
+
   // Reset steps and custom options when conversation changes
   useEffect(() => {
     setStep(1);
@@ -39,13 +47,34 @@ export default function ChatInterface({
     setErrorMessage('');
   }, [conversation?.id]);
 
+  const withDefaults = (personaList) => {
+    const n = personaList.length;
+    return personaList.map((persona, index) => {
+      const defaultWeight = index === n - 1
+        ? +(1 - (Math.round((1 / n) * 100) / 100) * (n - 1)).toFixed(2)
+        : Math.round((1 / n) * 100) / 100;
+      return {
+        ...persona,
+        model: persona.model || (availableModels.length
+          ? availableModels[index % availableModels.length].id
+          : ''),
+        weight: persona.weight !== undefined ? persona.weight : defaultWeight,
+      };
+    });
+  };
+
+  const TIER_LABELS = { low: 'Low cost', medium: 'Medium cost', max: 'Max cost' };
+  const modelsByTier = ['low', 'medium', 'max']
+    .map((tier) => ({ tier, models: availableModels.filter((m) => m.tier === tier) }))
+    .filter((g) => g.models.length > 0);
+
   const handleSuggestPersonas = async () => {
     if (!input.trim() || isSuggestingPersonas) return;
     setIsSuggestingPersonas(true);
     setErrorMessage('');
     try {
       const result = await api.suggestPersonas(input);
-      setPersonas(result.personas || []);
+      setPersonas(withDefaults(result.personas || []));
       setStep(2);
     } catch (err) {
       console.error(err);
@@ -71,6 +100,8 @@ export default function ChatInterface({
     if (mode === 'persona' && step === 1) {
       handleSuggestPersonas();
     } else {
+      if (mode === 'persona' && !isWeightValid) return;
+
       // Standard send or persona run from Step 2
       const options = mode === 'persona'
         ? { mode: 'persona', personas, mappingOption }
@@ -82,6 +113,9 @@ export default function ChatInterface({
       setPersonas([]);
     }
   };
+
+  const totalWeight = personas.reduce((sum, p) => sum + (parseFloat(p.weight) || 0), 0);
+  const isWeightValid = Math.abs(totalWeight - 1) <= 0.01;
 
   const handleKeyDown = (e) => {
     // Submit on Enter (without Shift)
@@ -257,6 +291,32 @@ export default function ChatInterface({
                       />
                     </div>
                     <div className="card-field">
+                      <label>Model</label>
+                      <select
+                        value={persona.model || ''}
+                        onChange={(e) => handleUpdatePersona(index, 'model', e.target.value)}
+                      >
+                        {modelsByTier.map(({ tier, models }) => (
+                          <optgroup key={tier} label={TIER_LABELS[tier]}>
+                            {models.map((m) => (
+                              <option key={m.id} value={m.id}>{m.id}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="card-field">
+                      <label>Weight (0-1, all personas should sum to 1)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        value={persona.weight}
+                        onChange={(e) => handleUpdatePersona(index, 'weight', e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      />
+                    </div>
+                    <div className="card-field">
                       <label>Focus / Weightage Instructions</label>
                       <textarea
                         rows={4}
@@ -276,6 +336,10 @@ export default function ChatInterface({
                 ))}
               </div>
 
+              <div className={`weight-total ${isWeightValid ? 'valid' : 'invalid'}`}>
+                Total weight: {totalWeight.toFixed(2)} {!isWeightValid && '(must sum to 1.00 to run the council)'}
+              </div>
+
               <div className="mapping-selection-container">
                 <label className="mapping-label">Model Assignment Option:</label>
                 <div className="mapping-options">
@@ -289,7 +353,7 @@ export default function ChatInterface({
                     />
                     <div className="radio-text">
                       <strong>Option C: Round-Robin Distribution</strong>
-                      <span>Assign each persona to one model sequentially (4 queries total). Fast and efficient.</span>
+                      <span>Each persona is answered by the model you assigned to it above (one query per persona). Fast and efficient.</span>
                     </div>
                   </label>
                   <label className="radio-label">
@@ -302,7 +366,7 @@ export default function ChatInterface({
                     />
                     <div className="radio-text">
                       <strong>Option B: All-to-All Matrix</strong>
-                      <span>Every model answers from every persona's perspective (12 queries total). Multiplies API cost/time, but gives complete comparative coverage.</span>
+                      <span>Every distinct model assigned across the personas above answers from every persona's perspective. Multiplies API cost/time, but gives complete comparative coverage.</span>
                     </div>
                   </label>
                 </div>
@@ -327,6 +391,8 @@ export default function ChatInterface({
                   type="button"
                   className="btn-primary"
                   onClick={() => handleSubmit()}
+                  disabled={!isWeightValid}
+                  title={!isWeightValid ? 'Persona weights must sum to 1.00' : undefined}
                 >
                   Run Council
                 </button>

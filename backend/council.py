@@ -53,12 +53,18 @@ async def stage1_collect_responses(
         return stage1_results
 
     # Persona flow
+    # Each persona carries its own 'model' (set by the user on the Persona
+    # screen); fall back to the old round-robin default if absent, so callers
+    # that don't set 'model' (e.g. the smoke test script) keep working.
+    for i, persona in enumerate(personas):
+        if not persona.get('model'):
+            persona['model'] = COUNCIL_MODELS[i % len(COUNCIL_MODELS)]
+
     queries_to_make = []
 
     if mapping_option == "round_robin":
-        # Option C: Assign personas sequentially across council models
-        for i, model in enumerate(COUNCIL_MODELS):
-            persona = personas[i % len(personas)]
+        # Each persona is answered by exactly the model the user assigned to it
+        for persona in personas:
             system_prompt = STAGE1_PERSONA_SYSTEM_PROMPT.format(
                 persona_name=persona['name'],
                 persona_weightage=persona['weightage'],
@@ -68,11 +74,12 @@ async def stage1_collect_responses(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_query}
             ]
-            queries_to_make.append((model, persona['name'], messages))
+            queries_to_make.append((persona['model'], persona, messages))
     else:  # "matrix"
-        # Option B: Every model answers from every persona's perspective
+        # Every model chosen across the personas answers from every persona's perspective
+        matrix_models = list(dict.fromkeys(p['model'] for p in personas))
         for persona in personas:
-            for model in COUNCIL_MODELS:
+            for model in matrix_models:
                 system_prompt = STAGE1_PERSONA_SYSTEM_PROMPT.format(
                     persona_name=persona['name'],
                     persona_weightage=persona['weightage'],
@@ -82,14 +89,15 @@ async def stage1_collect_responses(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_query}
                 ]
-                queries_to_make.append((model, persona['name'], messages))
+                queries_to_make.append((model, persona, messages))
 
     # Query in parallel
-    async def query_with_metadata(model, persona_name, msgs):
+    async def query_with_metadata(model, persona, msgs):
         res = await query_model(model, msgs)
         return {
             "model": model,
-            "persona": persona_name,
+            "persona": persona['name'],
+            "persona_weight": persona.get('weight'),
             "response": res.get('content', '') if res else ''
         }
 
@@ -103,7 +111,8 @@ async def stage1_collect_responses(
 async def stage2_collect_rankings(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
-    mode: str = "standard"
+    mode: str = "standard",
+    council_models: Optional[List[str]] = None
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
     Stage 2: Each model ranks the anonymized responses.
@@ -112,10 +121,15 @@ async def stage2_collect_rankings(
         user_query: The original user query
         stage1_results: Results from Stage 1
         mode: "standard" or "persona"
+        council_models: Models that should perform the ranking. Defaults to
+            COUNCIL_MODELS when not provided (standard mode always ranks with
+            the full configured council; persona mode passes the deduplicated
+            set of models actually used in Stage 1).
 
     Returns:
         Tuple of (rankings list, label_to_model mapping)
     """
+    council_models = council_models or COUNCIL_MODELS
     # Create anonymized labels for responses (Response A, Response B, etc.)
     labels = []
     for i in range(len(stage1_results)):
@@ -155,7 +169,7 @@ async def stage2_collect_rankings(
     messages = [{"role": "user", "content": ranking_prompt}]
 
     # Get rankings from all council models in parallel
-    responses = await query_models_parallel(COUNCIL_MODELS, messages)
+    responses = await query_models_parallel(council_models, messages)
 
     # Format results
     stage2_results = []
@@ -193,7 +207,7 @@ async def stage3_synthesize_final(
     # Build comprehensive context for chairman
     if mode == "persona":
         stage1_text = "\n\n".join([
-            f"Model: {result['model']} (Persona/Perspective: {result.get('persona', 'N/A')})\nResponse: {result['response']}"
+            f"Model: {result['model']} (Persona/Perspective: {result.get('persona', 'N/A')}, Weight: {result.get('persona_weight', 'N/A')})\nResponse: {result['response']}"
             for result in stage1_results
         ])
 
@@ -442,11 +456,18 @@ async def run_full_council(
             "response": "All models failed to respond. Please try again."
         }, {}
 
-    # Stage 2: Collect rankings
+    # Stage 2: Collect rankings. In persona mode, rank with the deduplicated
+    # set of models the user actually selected in Stage 1, not the full
+    # configured council.
+    stage2_council_models = None
+    if mode == "persona":
+        stage2_council_models = list(dict.fromkeys(r['model'] for r in stage1_results))
+
     stage2_results, label_to_model = await stage2_collect_rankings(
         user_query,
         stage1_results,
-        mode=mode
+        mode=mode,
+        council_models=stage2_council_models
     )
 
     # Calculate aggregate rankings
