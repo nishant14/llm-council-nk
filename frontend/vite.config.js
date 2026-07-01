@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/content/' : '/',
+  base: command === 'build' ? (process.env.DEPLOY_PREFIX || '/content') + '/' : '/',
   plugins: [react()],
   server: {
     host: true,

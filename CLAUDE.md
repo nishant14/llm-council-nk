@@ -160,15 +160,24 @@ All backend modules use relative imports (e.g., `from .config import ...`) not a
 - Update both `backend/main.py` and `frontend/src/api.js` if changing
 
 ### Sub-path Deployment (nginx reverse proxy)
-The app supports being served behind a reverse proxy at a sub-path (default example: `/content/`) — see `docs/nginx-plan.md` for the full design rationale (why a proxied Vite *dev server* can't be path-rewritten with `sub_filter`, and why a production build + native prefix-awareness is the fix).
-- `frontend/vite.config.js` sets `base: '/content/'` only when running `vite build` (`npm run dev` stays unprefixed at `/`)
-- `frontend/src/api.js` derives `API_BASE` from `import.meta.env.BASE_URL`, so it's `''` in dev and `/content` in the production build — no other frontend code changes needed
+The app supports being served behind a reverse proxy at a sub-path — see `docs/nginx-plan.md` for the full design rationale (why a proxied Vite *dev server* can't be path-rewritten with `sub_filter`, and why a production build + native prefix-awareness is the fix).
+
+The **same codebase** can be deployed on multiple machines at different prefixes by passing `DEPLOY_PREFIX` at build+run time:
+```bash
+DEPLOY_PREFIX=/content ./start_prod.sh         # serves under /content/
+DEPLOY_PREFIX=/content_master ./start_prod.sh  # serves under /content_master/
+```
+
+How each layer uses `DEPLOY_PREFIX`:
+- `frontend/vite.config.js` reads `process.env.DEPLOY_PREFIX` at build time and sets Vite's `base` to `<prefix>/`. Defaults to `/content` if unset. `npm run dev` is always unprefixed at `/`.
+- `frontend/src/api.js` derives `API_BASE` from `import.meta.env.BASE_URL` (injected by Vite from `base`) — no code changes needed when the prefix changes.
 - `backend/main.py`:
   - The health check moved from `GET /` to `GET /healthz` — `/` is reserved for serving the built SPA (`frontend/dist`, mounted via `StaticFiles(html=True)` if that directory exists). **Known limitation**: this static mount is not a true wildcard SPA fallback — only the mount root and real files resolve to `index.html`; arbitrary unmatched sub-paths 404. Fine today since the app has no client-side routing, but revisit if that's ever added.
-  - Setting the `DEPLOY_PREFIX` env var (e.g. `DEPLOY_PREFIX=/content`) wraps the app in an outer `FastAPI()` mounted at that prefix, so the whole app — API and static frontend alike — natively lives under `/content/...`. This lets nginx do a pure 1:1 `proxy_pass` with zero path rewriting. Unset (local dev default), the app behaves exactly as before.
+  - Setting `DEPLOY_PREFIX` wraps the app in an outer `FastAPI()` mounted at that prefix, so the whole app — API and static frontend alike — natively lives under `<prefix>/...`. This lets nginx do a pure 1:1 `proxy_pass` with zero path rewriting. Unset (local dev default), the app behaves exactly as before.
   - When `DEPLOY_PREFIX` is set, uvicorn is started with `forwarded_allow_ips="*"` so it trusts `X-Forwarded-Proto` from the proxy/tunnel — without this, the first navigation to the bare prefix (no trailing slash) 307-redirects to an `http://` URL and breaks under TLS.
-- Production startup: `./start_prod.sh` (builds the frontend, then runs the backend with `DEPLOY_PREFIX` set). `start.sh` remains the dev-mode script and is unaffected.
+- Production startup: `./start_prod.sh` (builds the frontend then runs the backend, both with `DEPLOY_PREFIX`). `start.sh` remains the dev-mode script and is unaffected.
 - nginx must still set `proxy_buffering off`, a generous `proxy_read_timeout` (SSE keep-alives), and forward `X-Forwarded-Proto`/`X-Forwarded-For` — see `docs/nginx-plan.md` for the exact config block.
+- **Docker networking gotcha**: if nginx runs inside Docker, `localhost:8001` in `proxy_pass` resolves to the container, not the host. Use the Docker bridge gateway IP instead (typically `172.17.0.1` on Linux): `proxy_pass http://172.17.0.1:8001/<prefix>/;`. Confirm with `docker network inspect bridge | grep Gateway`.
 
 ### Markdown Rendering
 All ReactMarkdown components must be wrapped in `<div className="markdown-content">` for proper spacing. This class is defined globally in `index.css`.

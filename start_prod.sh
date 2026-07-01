@@ -9,9 +9,9 @@ export PATH="$HOME/.local/bin:$PATH"
 
 DEPLOY_PREFIX="${DEPLOY_PREFIX:-/content}"
 
-echo "Building frontend..."
+echo "Building frontend with prefix ${DEPLOY_PREFIX} ..."
 cd frontend
-npm run build
+DEPLOY_PREFIX="$DEPLOY_PREFIX" npm run build
 cd ..
 
 echo ""
