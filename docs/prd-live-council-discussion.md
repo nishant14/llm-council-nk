@@ -1,8 +1,9 @@
 # PRD: Live Council Discussion (Interactive Persona Deliberation)
 
-**Status:** Draft v3
+**Status:** Draft v4
 **Author:** Nishant (concept) / drafted with Claude
 **Date:** 2026-07-02
+**v4 changes:** Added §13 — an optional, per-session **persona airtime budget** mechanic (scarcity forces personas to spend words only on points they're genuinely convinced about) plus an **A/B experiment framework** (paired-run harness, automatic metrics, blind LLM judge, in-product variant tagging) to test budget vs. no-budget before deciding whether it becomes a default.
 **v3 changes:** Added an **impact round** — after the last ruling, each persona receives the final decision log (dissent dispositions included) and reports the impact on its domain (additional work, steps, considerations, dependencies). The closing output is now **two documents**: a **full report** (all discussions, decisions, rationale, important dissent, way forward) and a **concise decision brief** (decisions plus unresolved items and close/reversible calls with their dependencies).
 **v2 changes:** The former single "Chairman" is split into **two agents** — a **Moderator** (facilitator, strictly neutral) and a **Chair** (adjudicator with delegated decision authority). Added: an explicit decision hierarchy (User > Chair > Personas), a decision contract that prohibits split-the-difference non-decisions, a close-call procedure where divided parties present closing statements before the Chair rules, a "challenge decision" user intervention, and **per-persona briefings** — the user can give any individual persona additional private context via text or file attachments, at setup or mid-discussion.
 **Relationship to existing product:** A new, third mode alongside Standard and Persona Council. It reuses the existing OpenRouter plumbing, persona suggestion (Stage 0), storage, and SSE infrastructure, but replaces the batch "answer → rank → synthesize" pipeline with a **turn-by-turn, moderated live discussion** — chaired by an accountable decision-maker — that the user watches unfold and can join at any moment.
@@ -161,7 +162,7 @@ Under the hood these are the same thing: the client drives turn generation; auto
 - **Main pane — live transcript.** Chat-style bubbles. Moderator turns styled as neutral/procedural (system-like, gavel icon). **Chair rulings render as inline decision cards** — visually heavier than chat bubbles, showing the decision, rejected alternatives, recorded dissent, and confidence/reversibility flags (plus a sponsor-override badge if challenged and reaffirmed). Each persona gets a stable color + avatar initials; user interventions highlighted (e.g. amber border). Markdown rendered via the existing `markdown-content` convention. Auto-scroll with a "jump to latest" affordance when the user has scrolled up.
 - **Right rail — agenda tracker.** The confirmed agenda as a checklist: current point highlighted, resolved points show a one-line ruling summary (click to expand the full decision card), upcoming points dimmed. Doubles as navigation for reading the transcript.
 - **Bottom — intervention composer.** Textarea + type chips (Context / My view / Override / Ask persona / Brief persona / Challenge / Skip / End) + attachment button when a persona target is selected + Pause-Resume/Step controls + turn-budget indicator ("Point 2 of 5 · turn 4/8").
-- **Cast strip (top).** Moderator and Chair identity chips (with their models), then persona chips with name, model, weight, and a briefing indicator (📎 count) when the persona has been briefed; hover for focus area. During Step 2 this is the editable persona card UI (reuse the existing persona-mode cards, including model dropdown grouped by cost tier and weight validation) **plus a per-persona briefing section: free-text field and file attach (PDF/txt/md/images)**. Clicking a persona chip mid-discussion opens its briefing for additions.
+- **Cast strip (top).** Moderator and Chair identity chips (with their models), then persona chips with name, model, weight, a briefing indicator (📎 count) when the persona has been briefed, and a remaining-airtime meter when the airtime economy is enabled (§13); hover for focus area. During Step 2 this is the editable persona card UI (reuse the existing persona-mode cards, including model dropdown grouped by cost tier and weight validation) **plus a per-persona briefing section: free-text field and file attach (PDF/txt/md/images)**. Clicking a persona chip mid-discussion opens its briefing for additions.
 - **Decision panel (Steps 5–6).** Two tabs: **Brief** (default — the one-page decision brief: decisions, unresolved items, close/reversible calls, dependencies) and **Full report** (per-point discussion summaries, rationale, dissent, impact statements, action items table, follow-ups, sponsor overrides). Each tab exportable as markdown separately. Impact statements also appear inline in the transcript as regular persona turns during Step 5.
 
 ---
@@ -353,7 +354,7 @@ Auto-advance: client calls `/turn`, waits `gap_ms` after `turn_complete`, calls 
 
 Transcripts grow. Prompts are assembled per-turn from:
 
-1. **Fixed header:** problem statement, user context, confirmed personas roster (names + focus one-liners + weights, weights visible to Moderator/Chair only — see §13), agenda, current `PriorityUpdate`s. For persona turns only: that persona's own private briefing (extracted text inline; image attachments passed as model inputs when the persona's model is multimodal).
+1. **Fixed header:** problem statement, user context, confirmed personas roster (names + focus one-liners + weights, weights visible to Moderator/Chair only — see §14), agenda, current `PriorityUpdate`s. For persona turns only: that persona's own private briefing (extracted text inline; image attachments passed as model inputs when the persona's model is multimodal).
 2. **Resolved-point summaries:** for each completed point, only its `PointResolution` JSON rendered as 3–4 lines — not the full exchange.
 3. **Current point verbatim:** the full transcript of the point under discussion.
 4. **Recent interventions verbatim** (they're short and load-bearing).
@@ -511,6 +512,10 @@ Each phase is a working increment with acceptance criteria. Do not reorder. Comm
 ### Phase 6 — Nice-to-haves (only after 1–5)
 - Token-level streaming of the active turn (SSE deltas). Chair and Moderator models selectable in UI (also closes the `ideas-scratchpad.md` chairman-selectable item). Per-session budget editor. UI toggle to inspect `debug_records` (conflict checks, decision reviews). "Re-open point" beyond the single challenge exchange. Conflict-heat indicator on the agenda rail.
 
+### Phase 7 — Airtime-budget experiment (§13)
+- The airtime mechanic behind its config flag (wallet, spend-or-pass call, half-rate assigned duties, floor allotment), UI toggle + pool size at creation, cast-strip meters, grant-airtime intervention; then the A/B harness `scratch/ab_test_airtime.py`, automatic metrics, and the blind LLM judge.
+- ✅ *Accept:* per §13.3 — flag off ⇒ behavior identical to v3; flag on ⇒ recorded passes and floor-allotment duties observable in a low-pool run; harness emits a paired metrics + blind-judge report over ≥3 problems.
+
 ---
 
 ## 12. Cost & Latency Expectations (set user expectations in UI)
@@ -526,7 +531,37 @@ Latency per turn ≈ one model call (2–15s). Auto-advance therefore feels like
 
 ---
 
-## 13. Open Questions (decide before/while building; defaults given)
+## 13. Experimental Mechanic: Persona Airtime Budgets (optional, A/B-tested)
+
+**Hypothesis.** Giving each persona a finite airtime wallet for the whole discussion creates opportunity cost: speaking on point 2 means less capacity to fight on point 4. That scarcity should force conviction-driven prioritization — personas concede cheap points quickly, pass on invitations they don't care about, and spend heavily only where their expertise says the stakes are real. Passing itself becomes signal: "the Security Architect saved their airtime for this point" tells the Chair something no prompt exhortation can.
+
+**Honest counter-hypothesis (why this must be A/B-tested, not just shipped).** LLMs don't *feel* scarcity — a balance number in the prompt may change nothing, or backfire: personas may hoard and under-participate, clip arguments below usefulness, or game the accounting. Any real effect must come from **structure** (an explicit spend-or-pass decision before each elective turn, and hard `max_tokens` ceilings), not from pleading in the prompt. This is exactly the kind of mechanic that sounds right and needs evidence — hence the framework below. Off by default; per-session user option either way.
+
+### 13.1 Design (when `airtime.enabled` for a session)
+
+- **Wallet.** Each persona gets an allotment in words, from a session pool (default 2,000 words) split **proportionally to numeric `weight`** — this finally makes weight mean something personas can feel, not just a Chair-side tiebreaker.
+- **What costs airtime.** Elective speech at full rate: accepting an invitation, rebuttals, replies. **Assigned duties at half rate:** lead statements, closing statements, impact statements — the persona didn't choose them, and the meeting can't function if they're silenced; at zero balance, assigned duties still get a minimum floor allotment (e.g. 100 words). Passing is free.
+- **Spend-or-pass decision.** When invited to speak electively, the persona first makes a cheap structured call: `{action: speak|pass, words_requested, one_line_reason}` given its balance and the point at stake. A pass goes on the record via the Moderator ("<Persona> defers, conserving their remaining airtime") — visible prioritization. A speak sets that turn's `max_tokens` to `min(words_requested, balance, per-turn cap)`.
+- **No mid-sentence truncation.** The budget gates *whether and how long* a persona speaks (declared before the turn), never chops rendered text; the turn prompt states the allotment so the model composes to fit.
+- **Visibility.** A persona sees only its own balance. Moderator and Chair see all balances — spending patterns are decision-relevant signal ("X went quiet for three points to fight here; weigh accordingly", stated in `CHAIR_RULING_PROMPT` when the mechanic is on). Other personas see passes (they're on the record) but not balances. UI: airtime meters on the cast strip.
+- **User control.** Toggle + pool size at session creation (Step 1); mid-discussion the user can **grant additional airtime** to any persona (extension of the Brief-persona intervention: `{grant_words}`) — the sponsor giving someone more time at the mic.
+- **New/changed pieces:** `config.airtime {enabled, pool_words, weight_proportional}`; `personas[].airtime {allotted, spent}`; transcript `meta.words_spent`; new turn type `pass`; new prompt `PERSONA_SPEND_DECISION_PROMPT` (JSON-only, uses the persona's own model); one added line in `PERSONA_TURN_PROMPT` stating the allotment. Parse failure on a spend decision defaults to `speak` at the per-turn cap (never silence a persona on a parse error).
+
+### 13.2 A/B Experiment Framework (budget vs. no-budget)
+
+1. **Variant tagging (observational).** Every session JSON records its `airtime` config; every in-product session is automatically a labeled sample. At session end, a one-tap quality rating ("How useful was this discussion?" 1–5) is stored beside the variant tag.
+2. **Paired-run harness (controlled).** `scratch/ab_test_airtime.py`: takes a problem spec (or a directory of them); runs persona suggestion + agenda **once**, freezes personas/models/weights/agenda; then runs the discussion **twice** with identical inputs — variant A (budget off) and variant B (budget on) — and writes both session JSONs side by side. Everything except the mechanic is held constant. A corpus of 5–10 diverse problems is enough for a first read.
+3. **Automatic metrics** (computed from session JSONs, no LLM): mean words per persona turn; turns and elective turns per point; pass rate; participation spread across personas (did anyone go silent?); concessions (from the structured record); total tokens/cost; wall-clock.
+4. **Blind LLM judge.** An evaluator model — deliberately *not* any model used in the council, to reduce affinity bias — receives the two transcripts labeled only "Discussion A"/"Discussion B" (order randomized per pair, variant hidden; same anonymization discipline as Stage 2) and scores each 1–5 with one-line justifications on: argument specificity, redundancy (reverse-scored), genuine engagement with opposing points, clarity of prioritization, and decision quality of the rulings; plus an overall preference. JSON output, parsed tolerantly.
+5. **Report + decision rule (stated in advance).** The harness prints a paired comparison table (metrics + judge scores per problem, aggregate deltas). Adopt budget-on as the default only if it wins on judge quality without dropping participation spread by more than ~20%; keep it as a user option if results are mixed; drop the mechanic if it loses on quality — regardless of how elegant the theory is.
+
+### 13.3 Build placement
+
+Implement as **Phase 7** (after Phase 6): the mechanic behind its config flag, the spend-or-pass call, UI toggle + meters + grant-airtime, then the harness, metrics, and judge. ✅ *Accept:* with the flag off, sessions are byte-identical in behavior to v3; with it on, a forced low-pool run shows recorded passes and a floor-allotment lead statement; the harness produces a paired report with metrics and blind judge scores for at least 3 problems.
+
+---
+
+## 14. Open Questions (decide before/while building; defaults given)
 
 1. **Should personas see each persona's numeric weight?** Default **no** — weights inform only the Chair's rulings (mirrors existing Stage 3 design; prevents personas from deferring pre-emptively).
 2. **Structured-call visibility (conflict checks, decision reviews).** Default: not in the transcript, but stored in `debug_records` and inspectable — consistent with the project's "all raw outputs inspectable" transparency principle. UI toggle is a Phase 6 item.
@@ -535,10 +570,12 @@ Latency per turn ≈ one model call (2–15s). Auto-advance therefore feels like
 5. **Minimum viable persona count.** Default 3 (a 2-persona "discussion" is a debate; still allow it, but the suggestion prompt targets 3–5).
 6. **Should the Chair's `leaning` from DECISION_REVIEW ever be shown to personas before closing statements?** Default **no** — only the *key unresolved question* is stated on the record. Revealing the leaning would invite sycophantic convergence toward it instead of genuine final arguments.
 7. **Should the Chair (or other personas) see a persona's briefing contents?** Default **no** — briefings are private to the briefed persona; facts from them enter the record only through that persona's spoken arguments, exactly like an expert's private knowledge in a real meeting. The transcript's delivery stub keeps the *existence* of the briefing on the record. Revisit if users find rulings ignore un-voiced briefing facts (the fix would be a user choice per briefing: private vs. on the record).
+8. **Airtime accounting unit (§13): words or model tokens?** Default **words** — model-agnostic (personas run on different tokenizers), human-legible in the UI, and enforcement via `max_tokens` can approximate (≈1.4 tokens/word) since the ceiling is a composition target, not a truncation point.
+9. **Should assigned duties (lead/closing/impact) cost airtime at all?** Default half rate with a zero-balance floor (§13.1) — free would let a persona rebut infinitely via its lead role on later points; full rate could silence a heavily-weighted persona's obligations. Revisit with A/B data.
 
 ---
 
-## 14. Success Criteria (product-level)
+## 15. Success Criteria (product-level)
 
 1. A non-technical user can go from problem → confirmed cast → confirmed agenda → watched discussion → decision package without reading docs.
 2. In ≥80% of sessions on real prompts, at least one persona *changes or concedes a position* in response to another's argument — the debate is real, not parallel monologues (spot-check qualitatively).
