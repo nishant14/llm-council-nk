@@ -1,0 +1,30 @@
+[Unit]
+Description=LLM Council - Multi-model deliberation web app
+After=network.target
+
+[Service]
+Type=simple
+User=nkumar
+WorkingDirectory=/home/nkumar/Projects/llm-council-nk
+
+# systemd starts with a minimal PATH; explicitly add ~/.local/bin so uv is found
+Environment=PATH=/home/nkumar/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# Sub-path this instance is served under — must match the nginx location block.
+# Change to /content_main, /content_master, etc. as appropriate for this machine.
+Environment=DEPLOY_PREFIX=/content
+
+# Loads OPENROUTER_API_KEY from the project .env file (keep that file secure, not world-readable)
+EnvironmentFile=/home/nkumar/Projects/llm-council-nk/.env
+
+# Builds the frontend then starts the backend; both inherit DEPLOY_PREFIX above
+ExecStart=/bin/bash /home/nkumar/Projects/llm-council-nk/start_prod.sh
+
+Restart=on-failure
+RestartSec=10
+# Stop restarting after 3 failures in 60 s (avoids hammering on a broken build)
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+[Install]
+WantedBy=multi-user.target

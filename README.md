@@ -79,6 +79,68 @@ npm run dev
 
 Then open http://localhost:5173 in your browser.
 
+## Production Deployment
+
+The app can be served behind an nginx reverse proxy at a sub-path, and optionally run as a systemd service so it starts automatically on boot.
+
+### Running manually
+
+Build the frontend and start the backend in one command:
+
+```bash
+DEPLOY_PREFIX=/content ./start_prod.sh
+```
+
+`DEPLOY_PREFIX` must match the `location` block in your nginx config (e.g. `/content`, `/content_main`). The built frontend and the API are both served from port 8001. There is no separate frontend process in production.
+
+To stop, press `Ctrl+C`.
+
+### Running as a systemd service
+
+**1. Secure the `.env` file** (it contains your API key):
+```bash
+chmod 600 .env
+```
+
+**2. Edit `llm-council.service`** and set `DEPLOY_PREFIX` to match your nginx location:
+```ini
+Environment=DEPLOY_PREFIX=/content
+```
+Also verify `User=`, `WorkingDirectory=`, and the `EnvironmentFile=` path are correct for your machine.
+
+**3. Install and enable the service:**
+```bash
+sudo cp llm-council.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable llm-council   # auto-start on boot
+sudo systemctl start llm-council    # start now
+```
+
+**4. Check it started correctly:**
+```bash
+sudo systemctl status llm-council
+```
+
+**Managing the service:**
+```bash
+sudo systemctl stop llm-council      # stop
+sudo systemctl restart llm-council   # restart (also rebuilds the frontend)
+journalctl -u llm-council -f         # tail live logs
+journalctl -u llm-council -n 100     # last 100 log lines
+```
+
+**Deploying a code update:**
+```bash
+git pull
+sudo systemctl restart llm-council   # rebuilds frontend and restarts backend
+```
+
+### nginx configuration
+
+nginx must proxy the sub-path to port 8001 on the app machine. If nginx runs in Docker, use the Docker bridge gateway IP instead of `localhost` (typically `172.17.0.1` on Linux — confirm with `docker network inspect bridge | grep Gateway`).
+
+See `docs/nginx-plan.md` for a full example nginx location block including SSE and TLS settings.
+
 ## Tech Stack
 
 - **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API
