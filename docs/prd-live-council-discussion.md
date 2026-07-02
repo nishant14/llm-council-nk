@@ -1,8 +1,9 @@
 # PRD: Live Council Discussion (Interactive Persona Deliberation)
 
-**Status:** Draft v2
+**Status:** Draft v3
 **Author:** Nishant (concept) / drafted with Claude
 **Date:** 2026-07-02
+**v3 changes:** Added an **impact round** — after the last ruling, each persona receives the final decision log (dissent dispositions included) and reports the impact on its domain (additional work, steps, considerations, dependencies). The closing output is now **two documents**: a **full report** (all discussions, decisions, rationale, important dissent, way forward) and a **concise decision brief** (decisions plus unresolved items and close/reversible calls with their dependencies).
 **v2 changes:** The former single "Chairman" is split into **two agents** — a **Moderator** (facilitator, strictly neutral) and a **Chair** (adjudicator with delegated decision authority). Added: an explicit decision hierarchy (User > Chair > Personas), a decision contract that prohibits split-the-difference non-decisions, a close-call procedure where divided parties present closing statements before the Chair rules, a "challenge decision" user intervention, and **per-persona briefings** — the user can give any individual persona additional private context via text or file attachments, at setup or mid-discussion.
 **Relationship to existing product:** A new, third mode alongside Standard and Persona Council. It reuses the existing OpenRouter plumbing, persona suggestion (Stage 0), storage, and SSE infrastructure, but replaces the batch "answer → rank → synthesize" pipeline with a **turn-by-turn, moderated live discussion** — chaired by an accountable decision-maker — that the user watches unfold and can join at any moment.
 
@@ -18,7 +19,8 @@ Real organizational decisions don't work that way. In a real meeting:
 - Each point is **led by the person whose expertise it touches most**.
 - Others speak **only where their view genuinely conflicts or adds something** — not everyone repeats everything.
 - People **respond to each other**, concede, push back — and then **someone accountable makes the call**. Disagreement isn't averaged into mush; when the arguments are evenly matched, the chair hears final arguments from the divided parties and then rules.
-- The meeting ends with **decisions, action items, and owners** — not an essay.
+- Once decisions are made, they go **back around the table**: each function states what the decision means for them — extra work, new steps, risks — even the ones who were overruled (disagree and commit).
+- The meeting ends with **decisions, action items, and owners** — not an essay — and the minutes come in two forms: the full record for those who need it, and a one-page decision brief for everyone else.
 - Anyone in the room (especially the sponsor) can **interject at any time** with new context, an opinion, or a priority override — and can challenge a decision they think is wrong.
 
 **Live Council Discussion replicates this.** The user poses a problem, confirms the cast of expert personas and their focus areas, approves the agenda, and then watches a live chat where personas debate each agenda point under the Moderator's facilitation — with every point closed by an explicit, on-the-record decision from the Chair, and the user able to intervene at any turn. The output is a decision document: per-point rulings, an overall recommendation, action items, and follow-up tasks.
@@ -33,9 +35,10 @@ Real organizational decisions don't work that way. In a real meeting:
 2. **Genuine dialectic.** Personas respond to each other's actual words (not blind parallel answers). Conflict is surfaced deliberately, argued, and then *decided* — not summarized away.
 3. **Accountable decisions.** Every agenda point ends with one committed course of action from the Chair, with rejected alternatives named and dissent recorded. No "both sides have merit" non-decisions.
 4. **User participation at any point.** The user can pause, inject context, state their own perspective, override priorities, redirect, skip, challenge a decision, or end early — and the discussion visibly incorporates it. The user can also **brief any individual persona privately** with additional context (text or attached documents), at setup or mid-discussion, the way a sponsor hands an expert the relevant report before a meeting.
-5. **Structured, actionable output.** Every session ends with per-point decisions, an overall recommendation, action items, and follow-up tasks with suggested owners.
-6. **Bounded cost and time.** The discussion protocol has explicit turn budgets so a session can't spiral into unbounded token spend.
-7. **Confirmation gates.** Nothing expensive runs until the user has confirmed the problem framing, the personas, and the agenda.
+5. **Decisions ripple back to the room.** After the last ruling, every persona receives the final decision log (dissent noted) and reports the concrete impact on its domain — additional work, steps, considerations, dependencies on other functions — including personas that were overruled (disagree and commit). These impact statements feed the action items.
+6. **Structured, actionable, two-tier output.** Every session ends with (a) a **full report** — all discussions summarized, each decision with its rationale, important dissent, and the way forward — and (b) a **concise decision brief** — the decisions in one line each, plus unresolved items and close/reversible calls with their dependencies. Action items and follow-up tasks carry suggested owners.
+7. **Bounded cost and time.** The discussion protocol has explicit turn budgets so a session can't spiral into unbounded token spend.
+8. **Confirmation gates.** Nothing expensive runs until the user has confirmed the problem framing, the personas, and the agenda.
 
 ### Non-Goals (v1)
 
@@ -69,7 +72,7 @@ These are the invariants an implementing AI model must hold across every phase. 
 
 8. **Close calls get final arguments, then a ruling — never a blend.** Before ruling, the Chair reviews the point's record (structured call). If the decision is genuinely close, it names its key unresolved question and the divided parties each give one closing statement — at most once per point — before the Chair rules. If it's *still* close, the Chair decides anyway, flags the ruling low-confidence/reversible, and generates a validation follow-up task. Splitting the difference to avoid deciding is a prohibited output.
 
-9. **Everything is budgeted.** Per-point and per-session turn caps (§6.4) are hard limits enforced by the orchestrator, not suggestions in a prompt. When a budget is hit, the Chair is forced to rule on what's on the record ("in the interest of time…").
+9. **Everything is budgeted.** Per-point and per-session turn caps (§6.5) are hard limits enforced by the orchestrator, not suggestions in a prompt. When a budget is hit, the Chair is forced to rule on what's on the record ("in the interest of time…").
 
 10. **Degrade gracefully, never silently.** If a persona's model call fails after retry, the Moderator notes on the record that the persona is unavailable for that turn and continues. If a structured output fails to parse, fall back to a defined default (§10). Never crash the session; never hide a failure from the transcript.
 
@@ -108,10 +111,21 @@ Step 4  DISCUSS    Live chat. For each agenda point:
                         reversible with a validation follow-up task.
                    The user can intervene before any turn (see 4.2), including challenging a
                    ruling after it's made.
-Step 5  SYNTHESIZE Chair produces the closing package: overall recommendation, per-point
-                   decision log, action items (owner, priority, suggested timeline), follow-up
-                   tasks / open questions, and any sponsor overrides noted.
-Step 6  WRAP       User can ask follow-up questions to the Chair or any persona (bounded
+Step 5  IMPACT     After the last point is ruled (or the user ends the discussion), the
+                   Moderator circulates the final decision log — every ruling with its
+                   dissent dispositions and any sponsor overrides — and each persona gives
+                   one impact statement: additional work in its domain, concrete steps,
+                   considerations/risks, and dependencies on other functions. Overruled
+                   personas respond in disagree-and-commit mode. User can skip this round.
+Step 6  SYNTHESIZE Chair produces two documents:
+                     • FULL REPORT — problem, per-point discussion summaries, each decision
+                       with its rationale, important dissent, impact summaries, action items
+                       (owner, priority, suggested timeline), follow-ups, sponsor overrides,
+                       and the way forward.
+                     • DECISION BRIEF — one page: each decision in a line or two, plus
+                       unresolved items, close/reversible calls with their validation tasks,
+                       and cross-functional dependencies surfaced in the impact round.
+Step 7  WRAP       User can ask follow-up questions to the Chair or any persona (bounded
                    Q&A turns), then the session is archived like any conversation.
 ```
 
@@ -129,7 +143,7 @@ An intervention composer (text box + type selector) is **always visible** during
 | **Challenge decision** | "That ruling is wrong — we are not dropping vendor X." | The Chair gets one turn to either **revise** the ruling or **defend** it (restating the decisive reasoning). If the user reaffirms the challenge, the user's position stands and is recorded on the resolution as a **sponsor override** — the Chair does not argue further. |
 | **Redirect / skip** | "We've covered this. Move to the next point." | Chair immediately rules on the current point with what's on record; Moderator advances. |
 | **Pause / resume** | (button) | No new turns are generated until resume. Step mode (§4.3) is the generalization. |
-| **End discussion** | "Wrap it up." | Chair rules briefly on the current point and the session jumps to synthesis (Step 5). |
+| **End discussion** | "Wrap it up." | Chair rules briefly on the current point, then the session proceeds to the impact round and synthesis (Steps 5–6). The user is offered a skip of the impact round ("Finalize now"). |
 
 Free text without a selected type defaults to **Add context**; the Moderator classifies intent as part of its acknowledgment turn.
 
@@ -148,7 +162,7 @@ Under the hood these are the same thing: the client drives turn generation; auto
 - **Right rail — agenda tracker.** The confirmed agenda as a checklist: current point highlighted, resolved points show a one-line ruling summary (click to expand the full decision card), upcoming points dimmed. Doubles as navigation for reading the transcript.
 - **Bottom — intervention composer.** Textarea + type chips (Context / My view / Override / Ask persona / Brief persona / Challenge / Skip / End) + attachment button when a persona target is selected + Pause-Resume/Step controls + turn-budget indicator ("Point 2 of 5 · turn 4/8").
 - **Cast strip (top).** Moderator and Chair identity chips (with their models), then persona chips with name, model, weight, and a briefing indicator (📎 count) when the persona has been briefed; hover for focus area. During Step 2 this is the editable persona card UI (reuse the existing persona-mode cards, including model dropdown grouped by cost tier and weight validation) **plus a per-persona briefing section: free-text field and file attach (PDF/txt/md/images)**. Clicking a persona chip mid-discussion opens its briefing for additions.
-- **Decision panel (Step 5).** Rendered as cards: Overall recommendation / Decision log table / Action items table / Follow-ups / Sponsor overrides. Exportable as markdown.
+- **Decision panel (Steps 5–6).** Two tabs: **Brief** (default — the one-page decision brief: decisions, unresolved items, close/reversible calls, dependencies) and **Full report** (per-point discussion summaries, rationale, dissent, impact statements, action items table, follow-ups, sponsor overrides). Each tab exportable as markdown separately. Impact statements also appear inline in the transcript as regular persona turns during Step 5.
 
 ---
 
@@ -157,11 +171,11 @@ Under the hood these are the same thing: the client drives turn generation; auto
 | Role | Played by | Responsibilities |
 |---|---|---|
 | **Moderator** (facilitator) | `DISCUSSION_MODERATOR_MODEL` — default `google/gemini-2.5-flash` (cheap + fast; also runs all structured flow calls) | Propose personas and agenda; open points; pick lead + invited speakers via structured decisions; enforce budgets; acknowledge, classify, and route interventions; convene closing statements. **Strictly neutral — never expresses a substantive opinion and never decides anything substantive.** |
-| **Chair** (adjudicator) | `DISCUSSION_CHAIR_MODEL` — default `CHAIRMAN_MODEL`, selectable per session in the UI | Speaks only at decision moments. Reviews each point's record; calls for closing statements when the decision is close; then **rules**: one committed course of action, rejected alternatives named with reasons, dissent recorded as overruled or accommodated, confidence and reversibility flagged. Responds to decision challenges (revise or defend once). Produces the final synthesis. Accountable for every ruling; overrideable only by the user. |
-| **Persona** (3–5) | Its user-assigned model from `PERSONA_MODEL_CHOICES` | Argue its point of view from its focus area (`weightage` text); present when lead; rebut only when invited; give a closing statement when convened; concede when convinced; stay in character; keep turns short (§9). **Advisors only — personas never vote.** Numeric `weight` is an input to the Chair's judgment, not a ballot. |
+| **Chair** (adjudicator) | `DISCUSSION_CHAIR_MODEL` — default `CHAIRMAN_MODEL`, selectable per session in the UI | Speaks only at decision moments. Reviews each point's record; calls for closing statements when the decision is close; then **rules**: one committed course of action, rejected alternatives named with reasons, dissent recorded as overruled or accommodated, confidence and reversibility flagged. Responds to decision challenges (revise or defend once). Produces the two closing documents: the full report and the decision brief. Accountable for every ruling; overrideable only by the user. |
+| **Persona** (3–5) | Its user-assigned model from `PERSONA_MODEL_CHOICES` | Argue its point of view from its focus area (`weightage` text); present when lead; rebut only when invited; give a closing statement when convened; concede when convinced; deliver an **impact statement** on the final decisions (additional work, steps, considerations, dependencies — in disagree-and-commit mode if overruled); stay in character; keep turns short (§9). **Advisors only — personas never vote.** Numeric `weight` is an input to the Chair's judgment, not a ballot. |
 | **User** | Human | Sponsor of the decision and **final authority**: confirms gates, intervenes, sets binding priorities, can challenge and override any ruling, ultimately owns the outcome. |
 
-**Decision hierarchy: User (sponsor) > Chair (delegated decider) > Personas (advisors).** This ordering is stated in the Chair's and Moderator's prompts and enforced by the intervention rules in §4.2/§6.3.
+**Decision hierarchy: User (sponsor) > Chair (delegated decider) > Personas (advisors).** This ordering is stated in the Chair's and Moderator's prompts and enforced by the intervention rules in §4.2/§6.4.
 
 ---
 
@@ -171,12 +185,13 @@ Under the hood these are the same thing: the client drives turn generation; auto
 
 ```
 CREATED → FRAMING → PERSONA_PROPOSAL → PERSONA_REVIEW ⟲ → AGENDA_PROPOSAL → AGENDA_REVIEW ⟲
-        → DISCUSSION → SYNTHESIS → WRAP_QA ⟲ → COMPLETED
-   (any state) → ABORTED
+        → DISCUSSION → IMPACT_ROUND → SYNTHESIS → WRAP_QA ⟲ → COMPLETED
+   (any state) → ABORTED          (IMPACT_ROUND skippable by user control)
 ```
 
 - `PERSONA_REVIEW` and `AGENDA_REVIEW` loop on user edits ("re-suggest with this feedback" re-invokes the proposal call with the user's notes appended) until an explicit confirm.
 - `DISCUSSION` contains a nested per-point machine (6.2), iterated over `agenda[]` in confirmed order.
+- `IMPACT_ROUND` is described in 6.3; `SYNTHESIS` produces the two closing documents (full report, then decision brief — two separate Chair calls, the brief distilled from the report + resolutions).
 
 ### 6.2 Per-point states
 
@@ -219,7 +234,25 @@ POINT_RULING          Chair: 1 spoken turn + structured record, under the decisi
                       JSON PointResolution schema in §8.
 ```
 
-### 6.3 Intervention handling (uniform rule)
+### 6.3 Impact round (after the last ruling)
+
+```
+IMPACT_OPEN           Moderator: 1 turn. Announces that decisions are final and circulates
+                      the decision log on the record: every ruling with its dissent
+                      dispositions and any sponsor overrides.
+IMPACT_STATEMENT      One turn per persona (agenda-relevance order, ties by weight desc).
+                      Each persona responds to the FULL decision log from its domain's
+                      perspective, structured as: Additional work · Concrete steps ·
+                      Considerations/risks · Dependencies on other functions · Anything else
+                      relevant. Overruled personas respond in disagree-and-commit mode: the
+                      decision is not re-argued; they state what executing it takes and what
+                      to watch for. No rebuttals, no cross-talk — this round is reporting,
+                      not debate.
+```
+
+Impact statements are ordinary transcript turns (type `impact_statement`) and are a primary input to synthesis: the Chair consolidates their work items into the action-items table and their cross-functional dependencies into the decision brief. If an impact statement surfaces something that *genuinely invalidates* a ruling, the persona may flag it as a `blocking_concern` (one line, structured) — the Chair does not reopen the point automatically, but the concern is listed under "unresolved" in the brief and offered to the user as a challenge candidate.
+
+### 6.4 Intervention handling (uniform rule)
 
 At every turn boundary the orchestrator drains the intervention queue **before** generating the next planned turn:
 
@@ -227,13 +260,14 @@ At every turn boundary the orchestrator drains the intervention queue **before**
 2. Generate one Moderator `INTERVENTION_ACK` turn that (a) classifies/acknowledges the intervention, (b) states its effect (per the table in §4.2), and (c) for overrides, emits a structured `PriorityUpdate` record stored on the session (binding on all subsequent Chair rulings).
 3. Resume the per-point machine — possibly in a modified position:
    - `skip` jumps to `POINT_RULING`;
-   - `end` forces a brief `POINT_RULING` then jumps to `SYNTHESIS`;
+   - `end` forces a brief `POINT_RULING` then jumps to `IMPACT_ROUND` (with a "Finalize now"
+     option to skip straight to `SYNTHESIS`);
    - a direct question inserts one `INVITED_RESPONSE` for the named persona;
    - `brief_persona` appends to the target persona's `briefing` and writes a delivery-stub
      transcript entry ("User briefed <persona>") — no LLM call, no Moderator ack turn;
    - **`challenge`** (targets a resolved point) inserts one Chair turn: revise the ruling (updating its `PointResolution`) or defend it once. A reaffirmed challenge writes a `sponsor_override` onto the resolution and the discussion moves on — the Chair does not re-argue.
 
-### 6.4 Budgets (defaults, all configurable per session)
+### 6.5 Budgets (defaults, all configurable per session)
 
 | Budget | Default |
 |---|---|
@@ -242,6 +276,7 @@ At every turn boundary the orchestrator drains the intervention queue **before**
 | Reply chain depth per exchange | 2 (statement → rebuttal → reply, then Moderator moves on) |
 | Closing-statement rounds per point | 1 round max; max 2 personas, 1 turn each |
 | Challenge exchanges per resolved point | 1 (revise-or-defend, then sponsor override applies) |
+| Impact round | 1 turn per persona, ≤ 250 words; no rebuttals |
 | Persona turn length | ≤ 250 words, enforced by prompt + a max_tokens ceiling |
 | Moderator procedural turn length | ≤ 120 words |
 | Chair ruling turn length | ≤ 300 words (spoken part; the JSON record is separate) |
@@ -268,7 +303,7 @@ New module **`backend/discussion.py`** — the orchestrator:
 
 **`backend/openrouter.py`** unchanged, except: add optional `max_tokens` param to `query_model()` (turn-length ceilings) if not already supported.
 
-**`backend/config.py`**: add `DISCUSSION_DEFAULTS` (budgets from §6.4), `DISCUSSION_MODERATOR_MODEL` (default `google/gemini-2.5-flash`), `DISCUSSION_CHAIR_MODEL` (default `CHAIRMAN_MODEL`). Both agent models are per-session overridable; the same model id in both slots is allowed — the separation is in the prompts and call structure, not the weights.
+**`backend/config.py`**: add `DISCUSSION_DEFAULTS` (budgets from §6.5), `DISCUSSION_MODERATOR_MODEL` (default `google/gemini-2.5-flash`), `DISCUSSION_CHAIR_MODEL` (default `CHAIRMAN_MODEL`). Both agent models are per-session overridable; the same model id in both slots is allowed — the separation is in the prompts and call structure, not the weights.
 
 Standard/Persona code paths: **zero behavioral changes.**
 
@@ -305,7 +340,8 @@ POST   /api/discussions/{id}/intervene           → body: {type, content, targe
                                                    questions & text-only briefings; target_point for
                                                    challenges. Queued; takes effect on next /turn.
                                                    Returns updated queue.
-POST   /api/discussions/{id}/control             → body: {action: skip_point|end_discussion|abort}
+POST   /api/discussions/{id}/control             → body: {action: skip_point|end_discussion|
+                                                   skip_impact_round|abort}
 GET    /api/discussions/{id}                     → full session (rehydration/refresh)
 GET    /api/discussions                          → list summaries
 DELETE /api/discussions/{id}                     → delete
@@ -322,7 +358,7 @@ Transcripts grow. Prompts are assembled per-turn from:
 3. **Current point verbatim:** the full transcript of the point under discussion.
 4. **Recent interventions verbatim** (they're short and load-bearing).
 
-This keeps per-turn prompt size roughly O(current point + summaries), not O(entire session). The synthesis turn gets all `PointResolution`s plus the decision-relevant interventions and sponsor overrides, not the raw transcript.
+This keeps per-turn prompt size roughly O(current point + summaries), not O(entire session). Impact-round turns get the full decision log (all `PointResolution`s rendered) instead of a current point. The full-report synthesis call gets all `PointResolution`s, the impact statements verbatim, and the decision-relevant interventions/sponsor overrides — not the raw debate transcript. The brief call gets the finished report plus the resolutions and distills; it introduces no new content.
 
 ---
 
@@ -338,7 +374,7 @@ This keeps per-turn prompt size roughly O(current point + summaries), not O(enti
   "problem": "string",
   "user_context": "string | null",
   "config": { "moderator_model": "...", "chair_model": "...",
-              "budgets": { /* §6.4 */ }, "gap_ms": 2000 },
+              "budgets": { /* §6.5 */ }, "gap_ms": 2000 },
   "personas": [
     { "id": "p1", "name": "Security Architect", "weightage": "focus text…",
       "facets": ["…"], "model": "openrouter/id", "weight": 0.4, "color": "#…",
@@ -368,7 +404,7 @@ This keeps per-turn prompt size roughly O(current point + summaries), not O(enti
   "transcript": [
     { "turn_id": 17, "ts": "iso8601", "point_id": "a2",
       "speaker": { "kind": "moderator|chair|persona|user", "persona_id": "p1|null" },
-      "type": "point_open|lead_statement|invited_response|rebuttal|handoff|closing_statement|ruling|challenge_response|intervention|intervention_ack|briefing_delivered|synthesis|qa",
+      "type": "point_open|lead_statement|invited_response|rebuttal|handoff|closing_statement|ruling|challenge_response|intervention|intervention_ack|briefing_delivered|impact_open|impact_statement|synthesis|qa",
       "content": "markdown",
       "meta": { "model": "openrouter/id", "intervention_type": "override|context|challenge|…",
                 "invited_reason": "…" } }
@@ -379,8 +415,15 @@ This keeps per-turn prompt size roughly O(current point + summaries), not O(enti
     { "id": "t1", "point_id": "a1", "description": "…", "owner_persona_id": "p3",
       "owner_hint": "e.g. 'Eng lead'", "priority": "P1", "timeline": "2 weeks" }
   ],
-  "synthesis": { "recommendation": "markdown", "decision_log": "derived from agenda resolutions",
-                 "sponsor_overrides": [ /* derived */ ], "follow_ups": ["…"] } | null,
+  "impact_statements": [                     // structured extract alongside the transcript turns
+    { "persona_id": "p2", "turn_id": 58, "additional_work": ["…"], "steps": ["…"],
+      "considerations": ["…"], "dependencies": ["…"], "blocking_concern": "…|null" }
+  ],
+  "synthesis": {
+    "report": "markdown — full record: discussions, decisions, rationale, dissent, impacts, way forward",
+    "brief":  "markdown — one page: decisions; unresolved items; close/reversible calls + validation tasks; cross-functional dependencies",
+    "sponsor_overrides": [ /* derived */ ], "follow_ups": ["…"]
+  } | null,
   "call_count": 63                          // against session hard cap
 }
 ```
@@ -408,7 +451,10 @@ Moderator prompts are prefixed `MOD_`, Chair prompts `CHAIR_` — two distinct a
 | `CHAIR_RULING_PROMPT` | POINT_RULING | The **decision contract** (§6.2): commit to one course of action; "it depends"/split-the-difference blends prohibited; name rejected alternatives and why; record dissent as overruled or accommodated; tie-break order = user PriorityUpdates > persona weights > own judgment; still-close ⇒ rule anyway + low-confidence/reversible flag + validation follow-up task. Dual output: spoken ruling (≤300 words) + `PointResolution` JSON. States the decision hierarchy (User > Chair > Personas). |
 | `CHAIR_CHALLENGE_PROMPT` | challenge intervention | One turn: revise the ruling (with updated `PointResolution`) or defend it by restating the decisive reasoning — never both, never more than once. A reaffirmed challenge becomes a recorded `sponsor_override`; do not re-argue. |
 | `MOD_INTERVENTION_ACK_PROMPT` | intervention drain | Classify intent if untyped; acknowledge; state concrete effect; emit `PriorityUpdate` JSON when it's an override (binding on the Chair). Routes challenges to the Chair. |
-| `CHAIR_SYNTHESIS_PROMPT` | SYNTHESIS | From rulings + priority updates + sponsor overrides: overall recommendation, decision log, consolidated/deduplicated action items with owners/priority/timeline, follow-up tasks & open questions. Sponsor overrides reported verbatim, not re-litigated. |
+| `MOD_IMPACT_OPEN_PROMPT` | IMPACT_OPEN | Announces decisions are final; renders the decision log (rulings + dissent dispositions + sponsor overrides) on the record; invites each persona in turn for an impact statement. Neutral, procedural. |
+| `PERSONA_IMPACT_PROMPT` | IMPACT_STATEMENT | Persona-turn variant: given the full decision log, report from your domain — Additional work · Concrete steps · Considerations/risks · Dependencies on other functions · Anything else relevant. Disagree-and-commit clause for overruled personas (do not re-argue). Dual output: spoken statement + structured `impact_statement` JSON incl. optional one-line `blocking_concern`. |
+| `CHAIR_REPORT_PROMPT` | SYNTHESIS (call 1) | The **full report**: problem, per-point discussion summary, each decision with its rationale, important dissent (with dispositions), impact summaries, consolidated/deduplicated action items with owners/priority/timeline (merging impact-round work items), follow-up tasks & open questions, way forward. Sponsor overrides reported verbatim, not re-litigated. |
+| `CHAIR_BRIEF_PROMPT` | SYNTHESIS (call 2) | The **decision brief**, distilled from the finished report + resolutions: each decision in 1–2 lines; unresolved items (incl. any `blocking_concern`s); close/reversible rulings with their validation tasks; cross-functional dependencies from the impact round. Hard length cap (~1 page / ~400 words). Introduces no content absent from the report. |
 | `WRAP_QA_PROMPT` | WRAP_QA | Route a user question to the Chair or a named persona; answer grounded in the discussion record. |
 | `DISCUSSION_TITLE_PROMPT` | after confirm | Reuse `generate_conversation_title()` as-is. |
 
@@ -428,8 +474,9 @@ Formatting contracts that code parses (JSON schemas, the dual spoken+JSON ruling
 | `/turn` while a turn is generating | 409; client treats as "in flight" and re-polls session. |
 | Server restart mid-discussion | Session JSON is write-through; rehydrate and continue. A turn that died mid-generation simply never happened (no partial writes). |
 | User closes tab | Nothing generates (client-driven turns) — the session naturally freezes and resumes on return. This is a *feature* of the transport choice. |
-| Budget exhausted | Forced ruling/synthesis with on-record acknowledgment (§6.4). |
+| Budget exhausted | Forced ruling/synthesis with on-record acknowledgment (§6.5). |
 | Attachment not usable (PDF text extraction fails; image attached but persona's model is not multimodal) | Upload succeeds with a warning surfaced in the UI; the briefing block notes "attachment <name> could not be read" so the persona (and user) know it's not in play. Never silently drop content. |
+| Persona fails its impact statement (after 1 retry) | Moderator notes it on the record; the report lists that persona's impact as "not obtained"; session continues. |
 | All models for a point fail | Point marked `skipped` with a transcript note; session continues; surfaced in synthesis follow-ups. |
 
 ---
@@ -443,22 +490,22 @@ Each phase is a working increment with acceptance criteria. Do not reorder. Comm
 - All prompts from §9 in `prompts.py`.
 - Config additions (§7.1).
 - **Smoke script** `scratch/test_live_discussion.py`: creates a session for a canned problem, auto-confirms suggested personas/agenda, loops `advance()` to completion, prints the transcript with speaker labels (moderator/chair/persona), prints the synthesis. Include a flag to force `DECISION_REVIEW` to return `close` so the closing-statements path is exercised deterministically. (Follow the existing `scratch/test_persona_council.py` style; run with `uv run python scratch/test_live_discussion.py`.)
-- ✅ *Accept:* smoke script produces a coherent multi-point discussion where personas reference each other's arguments; every point ends with a parseable `PointResolution` that **names a decision and at least one rejected alternative** (no split-the-difference outputs in spot checks); the forced close-call run shows closing statements from the divided parties followed by a ruling flagged low-confidence/reversible with a validation follow-up; session JSON on disk fully describes the run; budgets demonstrably cap a point (test with budget=2).
+- ✅ *Accept:* smoke script produces a coherent multi-point discussion where personas reference each other's arguments; every point ends with a parseable `PointResolution` that **names a decision and at least one rejected alternative** (no split-the-difference outputs in spot checks); the forced close-call run shows closing statements from the divided parties followed by a ruling flagged low-confidence/reversible with a validation follow-up; after the last ruling, every persona delivers an impact statement (overruled personas in disagree-and-commit mode) and the run ends with **both** a full report and a ≤1-page decision brief; session JSON on disk fully describes the run; budgets demonstrably cap a point (test with budget=2).
 
 ### Phase 2 — HTTP API
 - All endpoints from §7.2 in `main.py`, including the per-turn SSE response (whole-turn events; no token deltas yet), gates returning state-only, the 409 in-flight guard, and intervention queueing (including `target_point` for challenges).
 - ✅ *Accept:* the full flow is drivable with `curl`/httpie alone: create → suggest/confirm personas → suggest/confirm agenda → repeated `/turn` → completed session with synthesis; an `/intervene` POST between turns visibly changes the next turn; refreshing via `GET` mid-discussion returns consistent state.
 
 ### Phase 3 — Frontend: watchable step-mode discussion
-- New discussion flow in the frontend: creation screen (Step 1), persona review reusing existing persona-card UI (Step 2), agenda review (Step 3), transcript view with moderator/chair/persona styling — Chair rulings as decision cards — and agenda rail (Step 4, **step mode only**: a "Next turn" button), synthesis panel (Step 5). Sidebar lists discussions.
-- ✅ *Accept:* a user can run an entire discussion from the browser clicking "Next turn", with correct attribution, colors, agenda progress, decision cards on each ruling, and a rendered decision panel at the end.
+- New discussion flow in the frontend: creation screen (Step 1), persona review reusing existing persona-card UI (Step 2), agenda review (Step 3), transcript view with moderator/chair/persona styling — Chair rulings as decision cards — and agenda rail (Step 4, **step mode only**: a "Next turn" button), impact round rendered as regular turns (Step 5), decision panel with Brief/Full-report tabs (Step 6). Sidebar lists discussions.
+- ✅ *Accept:* a user can run an entire discussion from the browser clicking "Next turn", with correct attribution, colors, agenda progress, decision cards on each ruling, impact statements in the transcript, and a decision panel showing both the brief and the full report at the end.
 
 ### Phase 4 — Interventions + pacing
 - Intervention composer with type chips wired to `/intervene`; all nine behaviors from §4.2 including **challenge decision** and text-only **brief persona** (Step-2 briefing text field also lands here). Auto-advance loop with configurable gap, Pause/Resume, mode toggle.
 - ✅ *Accept:* during auto-advance, submitting a priority override results (within one turn) in a Moderator acknowledgment that names the override, and subsequent Chair rulings reflect it; challenging a ruling produces exactly one revise-or-defend Chair turn, and reaffirming records a sponsor override on the resolution; a text briefing to one persona shows up as a delivery stub in the transcript and demonstrably informs that persona's next turn (and no other persona's); skip and end-discussion work; pause halts generation within one turn.
 
 ### Phase 5 — Wrap-up Q&A, export, attachments, resilience polish
-- WRAP_QA state + UI; markdown export of transcript + decision package (including sponsor overrides); **briefing attachments**: the multipart upload endpoint, PDF/txt/md text extraction, image pass-through for multimodal persona models, briefing indicators in the cast strip; failure-handling paths from §10 exercised (kill a model id to test degradation, including the Chair-model fallback and an unreadable attachment); title generation; delete.
+- WRAP_QA state + UI; markdown export — transcript, full report, and decision brief as separate exports (all including sponsor overrides); **briefing attachments**: the multipart upload endpoint, PDF/txt/md text extraction, image pass-through for multimodal persona models, briefing indicators in the cast strip; failure-handling paths from §10 exercised (kill a model id to test degradation, including the Chair-model fallback and an unreadable attachment); title generation; delete.
 - ✅ *Accept:* export produces a self-contained markdown decision document; a persona with an invalid model id degrades per §10 without ending the session; an invalid Chair model id falls back to the Moderator model for the ruling and flags it degraded; a PDF briefed to one persona is cited by that persona in discussion; an image briefed to a non-multimodal persona surfaces a visible warning rather than silently vanishing.
 
 ### Phase 6 — Nice-to-haves (only after 1–5)
@@ -468,11 +515,12 @@ Each phase is a working increment with acceptance criteria. Do not reorder. Comm
 
 ## 12. Cost & Latency Expectations (set user expectations in UI)
 
-Rough per-session call count with defaults (5 points, ~6 persona turns/point average):
+Rough per-session call count with defaults (5 points, 4 personas, ~6 persona turns/point average):
 - Setup: ~3 calls (personas, agenda, title)
 - Per point: 1 open + 1 lead + 1 conflict-check + ~4 invited/rebuttal + ~3 flow-decisions + 1 decision-review + 0–2 closing statements + 1 ruling ≈ 12–14 → ~65 for 5 points
-- Synthesis + acks/challenges: ~6
-- **Total ≈ 70–80 calls**, most of them short and most on the cheap Moderator model — cost is dominated by persona turns and Chair rulings. This exceeds a Persona-mode run (~10 calls) several-fold; the turn-budget indicator and the session hard cap exist precisely for this, and the UI should show a running call count.
+- Impact round: 1 open + 1 per persona ≈ 5
+- Synthesis (report + brief) + acks/challenges: ~7
+- **Total ≈ 75–90 calls**, most of them short and most on the cheap Moderator model — cost is dominated by persona turns and Chair rulings/synthesis. This exceeds a Persona-mode run (~10 calls) several-fold; the turn-budget indicator and the session hard cap exist precisely for this, and the UI should show a running call count.
 
 Latency per turn ≈ one model call (2–15s). Auto-advance therefore feels like a real chat with people typing — that's desirable, not a bug to optimize away.
 
@@ -496,5 +544,6 @@ Latency per turn ≈ one model call (2–15s). Auto-advance therefore feels like
 2. In ≥80% of sessions on real prompts, at least one persona *changes or concedes a position* in response to another's argument — the debate is real, not parallel monologues (spot-check qualitatively).
 3. **Rulings are decisive:** in spot checks, every `PointResolution` commits to a single course of action and names at least one rejected alternative; zero split-the-difference non-decisions.
 4. A user intervention mid-discussion is acknowledged within one turn and demonstrably alters at least the current point's ruling; a challenged ruling gets exactly one revise-or-defend response, and a reaffirmed challenge is recorded as a sponsor override.
-5. Every completed session yields ≥1 action item with an owner and a per-point decision log.
-6. No session exceeds its hard call cap; no single model failure ends a session.
+5. Every completed session (impact round not skipped) contains one impact statement per persona, each naming at least one concrete work item or dependency — and overruled personas' statements execute the decision rather than re-arguing it.
+6. Every completed session yields **both** closing documents: a full report and a decision brief ≤1 page, plus ≥1 action item with an owner and a per-point decision log. The brief contains every decision, every unresolved item, and every close/reversible call — and nothing that isn't in the report.
+7. No session exceeds its hard call cap; no single model failure ends a session.
