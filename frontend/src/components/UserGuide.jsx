@@ -29,6 +29,7 @@ export default function UserGuide({ onStartNew }) {
               <div className="flow-icon">🤖🤖🤖</div>
               <div className="flow-badge">Stage 1</div>
               <div className="flow-caption">Models answer on their own</div>
+              <div className="flow-hint">🎛️ You pick the models</div>
             </div>
             <div className="flow-arrow" aria-hidden="true">→</div>
             <div className="flow-node">
@@ -41,6 +42,7 @@ export default function UserGuide({ onStartNew }) {
               <div className="flow-icon">🏛️</div>
               <div className="flow-badge">Stage 3</div>
               <div className="flow-caption">Chairman combines the best</div>
+              <div className="flow-hint">🎛️ You pick the Chairman</div>
             </div>
             <div className="flow-arrow" aria-hidden="true">→</div>
             <div className="flow-node flow-node-final">
@@ -57,11 +59,13 @@ export default function UserGuide({ onStartNew }) {
               <div className="mode-icon">🌐</div>
               <div className="mode-name">Standard</div>
               <div className="flow-caption">Every model answers directly</div>
+              <div className="mode-hint">🎛️ You still pick the Chairman</div>
             </div>
             <div className="mode-branch">
               <div className="mode-icon">🎭</div>
               <div className="mode-name">Persona</div>
               <div className="flow-caption">3 expert viewpoints explore your question</div>
+              <div className="mode-hint">✏️ Edit the personas, their weights &amp; each model</div>
               <div className="mapping-mini">
                 <div className="mini-option">
                   <div className="mini-icon">🔄</div>
