@@ -1,8 +1,9 @@
 # PRD: Live Council Discussion (Interactive Persona Deliberation)
 
-**Status:** Draft v6
+**Status:** Draft v7
 **Author:** Nishant (concept) / drafted with Claude
 **Date:** 2026-07-02
+**v7 changes:** Added **post-session amendments** (§4.6) — sponsor authority doesn't expire at `COMPLETED`. The user can override decisions, edit/close action items, and annotate follow-ups after the session ends. Amendments are **append-only**: the original ruling is always preserved and shown as overridden, never erased. Amended decisions are what future precedent-linked sessions inherit; an optional Chair call regenerates the report/brief marked "Amended".
 **v6 changes:** Added **precedent sessions** (§4.5) — at creation, the user can link one or more previous *completed* discussions; their final decisions are snapshotted into the new session as a **"line in the sand"**: all personas and both agents see them as standing decisions, binding by default (per-decision user override to "open for revisit"), the agenda can't re-open them, agenda-challenge proposals contradicting them are rejected with the precedent cited, and Chair rulings must stay consistent with them. Personas can flag a structured `precedent_conflict` once; only the user can release a precedent.
 **v5 changes:** Agenda drafting moves from the Moderator to the **Chair** (agenda-setting is a substantive framing decision; a **reasoning/thinking model** is now the recommended default for the Chair). Added an **agenda challenge round** (§6.2): before the user gate, each persona receives the draft agenda and gets exactly **one chance** — announced as such — to argue succinctly for an addition; the Chair rules admit/fold/reject on each argument with reasons on the record. The user still holds the final gate and can re-add anything rejected.
 **v4 changes:** Added §13 — an optional, per-session **persona airtime budget** mechanic (scarcity forces personas to spend words only on points they're genuinely convinced about) plus an **A/B experiment framework** (paired-run harness, automatic metrics, blind LLM judge, in-product variant tagging) to test budget vs. no-budget before deciding whether it becomes a default.
@@ -69,7 +70,7 @@ These are the invariants an implementing AI model must hold across every phase. 
 
 5. **Facilitation and adjudication are separate agents with separate contracts.** The **Moderator** runs the debate: procedural spoken turns (open a point, hand off, invite a speaker, acknowledge interventions, convene closing statements) plus structured flow decisions (who speaks next, is this point ready for decision) as JSON outputs distinct from its spoken text. It is strictly neutral — if it expresses a substantive opinion, that's a prompt bug. The **Chair** speaks only at decision moments (point rulings, close-call handling, decision challenges, final synthesis) and must *decide*, not summarize: commit to one course of action, name what was rejected and why, record overruled dissent. **Do not merge these into one prompt** — a single system prompt carrying both "stay neutral" and "make the call" degrades both behaviors. They run as separate agents and may use different models (cheap/fast Moderator, strong Chair); the Chair rules on the record it reads, like a judge, uncontaminated by having produced the moderation itself.
 
-6. **The decision hierarchy is User > Chair > Personas, and user interventions always win.** Personas advise and never vote; the Chair holds delegated decision authority and is accountable for every ruling; the user is the sponsor and holds final authority. An intervention enters the transcript like any other utterance and is processed at the next turn boundary — before any queued turn. A priority override from the user is binding: the Moderator acknowledges it, and every subsequent Chair ruling must reflect it. Rulings are provisional until the session ends — the user can challenge any decision (§4.2), and a reaffirmed challenge stands as a recorded sponsor override.
+6. **The decision hierarchy is User > Chair > Personas, and user interventions always win.** Personas advise and never vote; the Chair holds delegated decision authority and is accountable for every ruling; the user is the sponsor and holds final authority. An intervention enters the transcript like any other utterance and is processed at the next turn boundary — before any queued turn. A priority override from the user is binding: the Moderator acknowledges it, and every subsequent Chair ruling must reflect it. Rulings are never beyond the sponsor's reach — during the session the user can challenge any decision (§4.2), and **after** the session the user can amend any decision, action item, or follow-up (§4.6). Amendments are append-only: the original ruling stays on the record, marked overridden — the sponsor can overrule the council, but nobody, including the sponsor, silently rewrites history.
 
 7. **Conflict is invited, not defaulted.** After a lead persona presents, the Moderator explicitly determines *which* other personas materially disagree or have something to add (via a cheap structured "conflict check" call), and invites only those. "Everyone speaks on everything" recreates the batch mode's redundancy and burns the turn budget.
 
@@ -180,12 +181,26 @@ Under the hood these are the same thing: the client drives turn generation; auto
 
 At creation (Step 1), the user may link one or more previous **completed** discussions as **precedent sessions**. Organizations don't decide in a vacuum — this makes a new discussion start from what was already decided, instead of re-litigating it.
 
-- **What's carried.** A **snapshot**, copied into the new session at creation (so later deletion or edits of the old session can't corrupt it): each precedent's per-point decision log (decision + one-line rationale + dissent dispositions + sponsor overrides), its decision brief, and its unresolved items / validation follow-up tasks.
+- **What's carried.** A **snapshot**, copied into the new session at creation (so later deletion or edits of the old session can't corrupt it): each precedent's per-point decision log (decision + one-line rationale + dissent dispositions + sponsor overrides, **as amended at that moment** — post-session amendments (§4.6) are the organization's current decisions), its decision brief, and its unresolved items / validation follow-up tasks.
 - **Per-decision status.** Every carried decision defaults to **binding**. In the creation UI the user can flip individual decisions to **open for revisit**. Decisions the old session flagged low-confidence/reversible are visually highlighted as natural candidates to open — a validation session is often exactly why you chain.
 - **Effect on the room.** All personas and both agents see a **Standing Decisions** block in the fixed prompt header (§7.3). Personas must not re-litigate a binding precedent — they argue *within* it, and their positions must be compatible with it. A persona that believes the current problem genuinely invalidates a precedent may flag a one-line structured `precedent_conflict` (once per persona per precedent); the Chair notes it on the record and routes it to the user — **only the user can release a precedent**, mid-discussion via a priority-override intervention naming it (binding on the Chair like any override).
 - **Effect on the agenda.** The Chair's draft must not schedule points that re-open binding precedents, and should pick up the precedents' unresolved items and validation follow-ups as candidate points. Agenda-challenge proposals that contradict a binding precedent are rejected with the precedent cited (unless the user opened it).
 - **Effect on rulings and output.** Chair rulings must be consistent with binding precedents and cite them whenever they constrain the outcome. The new session's report and brief list the precedents relied on, and any unreleased `precedent_conflict` flags appear under "unresolved" in the brief.
 - **UI.** Step 1 gains a "Build on previous session(s)" picker (completed discussions only, with brief preview and per-decision binding/open toggles). During discussion, a pinned **Standing Decisions** card sits on the agenda rail; decisions released by the user mid-session get a visible "released" badge.
+
+### 4.6 Post-session amendments (sponsor authority doesn't expire)
+
+A `COMPLETED` session's record stays open to its sponsor. From the decision panel of any completed session, the user can:
+
+- **Override a decision.** Each decision card gets an "Override" action: the user supplies the new decision and (optionally) a reason. The card then shows the original Chair ruling struck through/collapsed with a **Sponsor-amended** badge and timestamp — the original is preserved, never deleted.
+- **Edit, close, or reassign action items** and annotate or resolve follow-ups. Same append-only treatment: prior values kept in the amendment record.
+- **Regenerate the documents (optional).** One Chair call re-issues the report and brief incorporating all amendments, clearly marked "Amended <date>"; the prior versions are kept in a history list. Without regeneration, the UI and exports simply overlay amendments on the original documents (original text + amendment side by side).
+
+Rules:
+
+- Amendments never reopen the session, generate persona turns, or invite counter-argument — the discussion is over; this is the sponsor exercising final authority over the outcome (Principle 6). If the user wants the council's reaction to a changed decision, that's a **new session chained to this one** (§4.5) with the amended decision in the precedent snapshot.
+- **Precedent interaction:** precedent snapshots taken at creation always carry the decisions *as amended at that moment* (the amended decision is the organization's decision). Sessions that linked this precedent *before* the amendment keep their old snapshot — by design (§4.5); the UI shows a notice on such sessions ("a precedent was amended after linking") so the user can decide whether that matters.
+- Amendments are timestamped, attributed to the user, and exported with the record.
 
 ---
 
@@ -401,6 +416,14 @@ POST   /api/discussions/{id}/intervene           → body: {type, content, targe
                                                    Returns updated queue.
 POST   /api/discussions/{id}/control             → body: {action: skip_point|end_discussion|
                                                    skip_impact_round|abort}
+POST   /api/discussions/{id}/amend               → only when COMPLETED (409 otherwise — during a
+                                                   session, use the challenge intervention). Body:
+                                                   {target: {kind: decision|action_item|follow_up,
+                                                   id}, new_value, reason?}. Appends to
+                                                   amendments[]; never mutates the original record.
+POST   /api/discussions/{id}/regenerate-docs     → optional; one Chair call re-issuing report +
+                                                   brief with amendments applied, marked "Amended";
+                                                   prior versions pushed to synthesis.history
 GET    /api/discussions/{id}                     → full session (rehydration/refresh)
 GET    /api/discussions                          → list summaries
 DELETE /api/discussions/{id}                     → delete
@@ -497,8 +520,16 @@ This keeps per-turn prompt size roughly O(current point + summaries), not O(enti
   "synthesis": {
     "report": "markdown — full record: discussions, decisions, rationale, dissent, impacts, way forward",
     "brief":  "markdown — one page: decisions; unresolved items; close/reversible calls + validation tasks; cross-functional dependencies",
-    "sponsor_overrides": [ /* derived */ ], "follow_ups": ["…"]
+    "sponsor_overrides": [ /* derived */ ], "follow_ups": ["…"],
+    "amended_at": "iso8601|null",
+    "history": [ { "ts": "…", "report": "…", "brief": "…" } ]   // pre-regeneration versions
   } | null,
+  "amendments": [                            // post-session sponsor edits — append-only (§4.6)
+    { "id": "am1", "ts": "iso8601",
+      "target": { "kind": "decision|action_item|follow_up", "id": "a2|t1|f0" },
+      "original_snapshot": { /* value at time of amendment */ },
+      "new_value": "…", "reason": "…|null" }
+  ],
   "call_count": 63                          // against session hard cap
 }
 ```
@@ -534,6 +565,7 @@ Moderator prompts are prefixed `MOD_`, Chair prompts `CHAIR_` — two distinct a
 | `CHAIR_REPORT_PROMPT` | SYNTHESIS (call 1) | The **full report**: problem, per-point discussion summary, each decision with its rationale, important dissent (with dispositions), impact summaries, consolidated/deduplicated action items with owners/priority/timeline (merging impact-round work items), follow-up tasks & open questions, way forward. Sponsor overrides reported verbatim, not re-litigated. |
 | `CHAIR_BRIEF_PROMPT` | SYNTHESIS (call 2) | The **decision brief**, distilled from the finished report + resolutions: each decision in 1–2 lines; unresolved items (incl. any `blocking_concern`s); close/reversible rulings with their validation tasks; cross-functional dependencies from the impact round. Hard length cap (~1 page / ~400 words). Introduces no content absent from the report. |
 | `WRAP_QA_PROMPT` | WRAP_QA | Route a user question to the Chair or a named persona; answer grounded in the discussion record. |
+| `CHAIR_AMENDED_DOCS_PROMPT` | regenerate-docs (post-session) | Re-issue report + brief with all sponsor amendments applied: amended decisions presented as current, with the original ruling noted as overridden by the sponsor (with reason, if given) — never erased. Output headed "Amended <date>". No new judgments — the Chair records the sponsor's decisions; it does not argue with them. |
 | `PRECEDENT_BLOCK` (template) | fixed header, when precedents exist | Renders the Standing Decisions snapshot with per-decision status. Audience-specific clause appended: **personas** — "settled ground: argue within these; do not re-litigate; if the current problem genuinely invalidates one, flag `precedent_conflict` (once) and move on"; **Chair** — "your agenda and rulings must be consistent with binding precedents; cite a precedent whenever it constrains your outcome"; **agenda ruling** — "reject challenge proposals that contradict a binding precedent, citing it". Open/released precedents are marked as revisitable. |
 | `DISCUSSION_TITLE_PROMPT` | after confirm | Reuse `generate_conversation_title()` as-is. |
 
@@ -587,9 +619,9 @@ Each phase is a working increment with acceptance criteria. Do not reorder. Comm
 - Intervention composer with type chips wired to `/intervene`; all nine behaviors from §4.2 including **challenge decision** and text-only **brief persona** (Step-2 briefing text field also lands here). Auto-advance loop with configurable gap, Pause/Resume, mode toggle.
 - ✅ *Accept:* during auto-advance, submitting a priority override results (within one turn) in a Moderator acknowledgment that names the override, and subsequent Chair rulings reflect it; challenging a ruling produces exactly one revise-or-defend Chair turn, and reaffirming records a sponsor override on the resolution; a text briefing to one persona shows up as a delivery stub in the transcript and demonstrably informs that persona's next turn (and no other persona's); skip and end-discussion work; pause halts generation within one turn.
 
-### Phase 5 — Wrap-up Q&A, export, attachments, precedents, resilience polish
-- WRAP_QA state + UI; markdown export — transcript, full report, and decision brief as separate exports (all including sponsor overrides); **precedent sessions** (§4.5): creation param + snapshotting, `PRECEDENT_BLOCK` in prompt assembly, precedent-consistency clauses in agenda/challenge/ruling prompts, `precedent_conflict` flags, release-via-override, Step-1 picker UI with per-decision binding/open toggles, and the pinned Standing Decisions card; **briefing attachments**: the multipart upload endpoint, PDF/txt/md text extraction, image pass-through for multimodal persona models, briefing indicators in the cast strip; failure-handling paths from §10 exercised (kill a model id to test degradation, including the Chair-model fallback and an unreadable attachment); title generation; delete.
-- ✅ *Accept:* export produces a self-contained markdown decision document; a persona with an invalid model id degrades per §10 without ending the session; an invalid Chair model id falls back to the Moderator model for the ruling and flags it degraded; a PDF briefed to one persona is cited by that persona in discussion; an image briefed to a non-multimodal persona surfaces a visible warning rather than silently vanishing; a session chained to a completed one shows personas acknowledging (not re-arguing) the standing decision, an agenda that doesn't re-open it, and a Chair ruling citing it where it constrains the outcome — and deleting the old session afterwards changes nothing.
+### Phase 5 — Wrap-up Q&A, export, attachments, precedents, amendments, resilience polish
+- WRAP_QA state + UI; markdown export — transcript, full report, and decision brief as separate exports (all including sponsor overrides); **precedent sessions** (§4.5): creation param + snapshotting, `PRECEDENT_BLOCK` in prompt assembly, precedent-consistency clauses in agenda/challenge/ruling prompts, `precedent_conflict` flags, release-via-override, Step-1 picker UI with per-decision binding/open toggles, and the pinned Standing Decisions card; **post-session amendments** (§4.6): `/amend` + `/regenerate-docs` endpoints, append-only `amendments[]`, Override actions on decision cards with sponsor-amended badges, amendment overlay in exports; **briefing attachments**: the multipart upload endpoint, PDF/txt/md text extraction, image pass-through for multimodal persona models, briefing indicators in the cast strip; failure-handling paths from §10 exercised (kill a model id to test degradation, including the Chair-model fallback and an unreadable attachment); title generation; delete.
+- ✅ *Accept:* export produces a self-contained markdown decision document; a persona with an invalid model id degrades per §10 without ending the session; an invalid Chair model id falls back to the Moderator model for the ruling and flags it degraded; a PDF briefed to one persona is cited by that persona in discussion; an image briefed to a non-multimodal persona surfaces a visible warning rather than silently vanishing; a session chained to a completed one shows personas acknowledging (not re-arguing) the standing decision, an agenda that doesn't re-open it, and a Chair ruling citing it where it constrains the outcome — and deleting the old session afterwards changes nothing; overriding a decision in a completed session preserves the original ruling under a sponsor-amended badge, a session chained *after* the amendment inherits the amended decision, and regenerate-docs produces an "Amended" report/brief with the old versions retained in history.
 
 ### Phase 6 — Nice-to-haves (only after 1–5)
 - Token-level streaming of the active turn (SSE deltas). Chair and Moderator models selectable in UI (also closes the `ideas-scratchpad.md` chairman-selectable item). Per-session budget editor. UI toggle to inspect `debug_records` (conflict checks, decision reviews). "Re-open point" beyond the single challenge exchange. Conflict-heat indicator on the agenda rail.
@@ -669,4 +701,5 @@ Implement as **Phase 7** (after Phase 6): the mechanic behind its config flag, t
 5. Every completed session (impact round not skipped) contains one impact statement per persona, each naming at least one concrete work item or dependency — and overruled personas' statements execute the decision rather than re-arguing it.
 6. Every completed session yields **both** closing documents: a full report and a decision brief ≤1 page, plus ≥1 action item with an owner and a per-point decision log. The brief contains every decision, every unresolved item, and every close/reversible call — and nothing that isn't in the report.
 7. In precedent-linked sessions, binding precedents are never re-litigated (spot-check: personas reference them as settled, dissents about them arrive only as `precedent_conflict` flags) and every Chair ruling that a precedent constrains cites it explicitly.
-8. No session exceeds its hard call cap; no single model failure ends a session.
+8. Post-session amendments are append-only in practice: no code path mutates or deletes an original ruling, action item, or document version — every prior value is recoverable from `amendments[]` and `synthesis.history`.
+9. No session exceeds its hard call cap; no single model failure ends a session.
