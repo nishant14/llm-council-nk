@@ -1,18 +1,8 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import CopyButton from './CopyButton';
+import { deAnonymizeText, buildStage2Html } from '../utils/exportRichText';
 import './Stage2.css';
-
-function deAnonymizeText(text, labelToModel) {
-  if (!labelToModel) return text;
-
-  let result = text;
-  // Replace each "Response X" with the actual model name
-  Object.entries(labelToModel).forEach(([label, model]) => {
-    const modelShortName = model.split('/')[1] || model;
-    result = result.replace(new RegExp(label, 'g'), `**${modelShortName}**`);
-  });
-  return result;
-}
 
 export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
   const [activeTab, setActiveTab] = useState(0);
@@ -23,7 +13,13 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
 
   return (
     <div className="stage stage2">
-      <h3 className="stage-title">Stage 2: Peer Rankings</h3>
+      <div className="stage-header">
+        <h3 className="stage-title">Stage 2: Peer Rankings</h3>
+        <CopyButton
+          getHtml={() => buildStage2Html(rankings, labelToModel, aggregateRankings)}
+          label="Copy stage"
+        />
+      </div>
 
       <h4>Raw Evaluations</h4>
       <p className="stage-description">

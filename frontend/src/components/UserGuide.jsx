@@ -23,62 +23,57 @@ export default function UserGuide({ onStartNew }) {
         </div>
 
         <div className="user-guide-section">
-          <h2>⚙️ How the 3-Stage Process Works</h2>
-          <div className="stages-flow">
-            <div className="stage-card">
-              <div className="stage-badge">Stage 1</div>
-              <h3>Independent Answering</h3>
-              <p>
-                The council models (Gemini, Llama, DeepSeek, GPT) receive your query and answer it independently. They do not see other answers yet.
-              </p>
+          <h2>How it works</h2>
+          <div className="process-flow">
+            <div className="flow-node">
+              <div className="flow-icon">🤖🤖🤖</div>
+              <div className="flow-badge">Stage 1</div>
+              <div className="flow-caption">Models answer on their own</div>
             </div>
-            <div className="stage-card">
-              <div className="stage-badge">Stage 2</div>
-              <h3>Peer Review & Ranking</h3>
-              <p>
-                All Stage 1 responses are anonymized. Each model acts as a reviewer, highlighting strengths and weaknesses of the other answers, and then ranks them.
-              </p>
+            <div className="flow-arrow" aria-hidden="true">→</div>
+            <div className="flow-node">
+              <div className="flow-icon">🕵️</div>
+              <div className="flow-badge">Stage 2</div>
+              <div className="flow-caption">Anonymous peer review &amp; ranking</div>
             </div>
-            <div className="stage-card">
-              <div className="stage-badge">Stage 3</div>
-              <h3>Chairman Synthesis</h3>
-              <p>
-                A dedicated <strong>Chairman</strong> model (Gemini 2.5 Flash) reviews all initial answers, peer critiques, and average rankings to compile the final unified advice.
-              </p>
+            <div className="flow-arrow" aria-hidden="true">→</div>
+            <div className="flow-node">
+              <div className="flow-icon">🏛️</div>
+              <div className="flow-badge">Stage 3</div>
+              <div className="flow-caption">Chairman combines the best</div>
+            </div>
+            <div className="flow-arrow" aria-hidden="true">→</div>
+            <div className="flow-node flow-node-final">
+              <div className="flow-icon">⭐</div>
+              <div className="flow-caption">Your answer</div>
             </div>
           </div>
         </div>
 
         <div className="user-guide-section">
-          <h2>⚖️ Council Modes & Customization</h2>
-          <div className="modes-grid">
-            <div className="mode-card">
+          <h2>Two ways to run it</h2>
+          <div className="mode-choice">
+            <div className="mode-branch">
               <div className="mode-icon">🌐</div>
-              <h3>Standard Mode</h3>
-              <p>
-                Standard consensus flow. Each model answers your query directly based on its general configuration. Ideal for direct exploration and fact-checking.
-              </p>
+              <div className="mode-name">Standard</div>
+              <div className="flow-caption">Every model answers directly</div>
             </div>
-            <div className="mode-card">
+            <div className="mode-branch">
               <div className="mode-icon">🎭</div>
-              <h3>Persona Council Mode</h3>
-              <p>
-                Tailored exploration. Before the council runs, the system automatically suggests <strong>3 expert perspectives</strong> (personas) optimized to explore your query.
-              </p>
-            </div>
-            <div className="mode-card">
-              <div className="mode-icon">🔄</div>
-              <h3>Option C: Round-Robin</h3>
-              <p>
-                You assign one model to each persona (one query per persona — the same model can be assigned to more than one persona). Fast and efficient.
-              </p>
-            </div>
-            <div className="mode-card">
-              <div className="mode-icon">🎛️</div>
-              <h3>Option B: All-to-All Matrix</h3>
-              <p>
-                Every distinct model you've assigned answers from every persona's perspective. Provides full comparative coverage but multiplies API usage.
-              </p>
+              <div className="mode-name">Persona</div>
+              <div className="flow-caption">3 expert viewpoints explore your question</div>
+              <div className="mapping-mini">
+                <div className="mini-option">
+                  <div className="mini-icon">🔄</div>
+                  <div className="mini-name">Round-Robin</div>
+                  <div className="flow-caption">One model per persona</div>
+                </div>
+                <div className="mini-option">
+                  <div className="mini-icon">🎛️</div>
+                  <div className="mini-name">Matrix</div>
+                  <div className="flow-caption">Every model × every persona</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

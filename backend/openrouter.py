@@ -1,11 +1,13 @@
 """OpenRouter API client for making LLM requests."""
 
+import asyncio
+import logging
+import time
 import httpx
 from typing import List, Dict, Any, Optional
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
 
-
-import asyncio
+logger = logging.getLogger(__name__)
 
 # Global semaphore to limit concurrent requests to OpenRouter (prevents 429 rate limits)
 OPENROUTER_SEMAPHORE = asyncio.Semaphore(3)
@@ -37,6 +39,7 @@ async def query_model(
         "messages": messages,
     }
 
+    start = time.perf_counter()
     try:
         async with OPENROUTER_SEMAPHORE:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -50,13 +53,23 @@ async def query_model(
                 data = response.json()
                 message = data['choices'][0]['message']
 
+                logger.info("query_model model=%s ok in %.2fs", model, time.perf_counter() - start)
                 return {
                     'content': message.get('content'),
                     'reasoning_details': message.get('reasoning_details')
                 }
 
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "query_model model=%s failed after %.2fs: HTTP %s",
+            model, time.perf_counter() - start, e.response.status_code
+        )
+        return None
+    except httpx.TimeoutException:
+        logger.error("query_model model=%s timed out after %.2fs", model, time.perf_counter() - start)
+        return None
     except Exception as e:
-        print(f"Error querying model {model}: {e}")
+        logger.error("query_model model=%s failed after %.2fs: %s", model, time.perf_counter() - start, e)
         return None
 
 

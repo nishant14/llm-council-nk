@@ -3,8 +3,11 @@
 import json
 import re
 import asyncio
+import logging
 from typing import List, Dict, Any, Tuple, Optional
 from .openrouter import query_models_parallel, query_model
+
+logger = logging.getLogger(__name__)
 from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
 from .prompts import (
     PERSONA_SUGGESTION_PROMPT,
@@ -50,6 +53,7 @@ async def stage1_collect_responses(
                     "response": response.get('content', '')
                 })
 
+        logger.info("stage1 standard: %d/%d models responded", len(stage1_results), len(COUNCIL_MODELS))
         return stage1_results
 
     # Persona flow
@@ -105,7 +109,12 @@ async def stage1_collect_responses(
     results = await asyncio.gather(*futures)
 
     # Filter out empty responses
-    return [r for r in results if r["response"]]
+    stage1_results = [r for r in results if r["response"]]
+    logger.info(
+        "stage1 persona (%s): %d/%d queries returned content",
+        mapping_option, len(stage1_results), len(queries_to_make)
+    )
+    return stage1_results
 
 
 async def stage2_collect_rankings(
@@ -183,6 +192,7 @@ async def stage2_collect_rankings(
                 "parsed_ranking": parsed
             })
 
+    logger.info("stage2: %d/%d models returned rankings", len(stage2_results), len(council_models))
     return stage2_results, label_to_model
 
 
@@ -190,7 +200,8 @@ async def stage3_synthesize_final(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
     stage2_results: List[Dict[str, Any]],
-    mode: str = "standard"
+    mode: str = "standard",
+    chairman_model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -200,10 +211,12 @@ async def stage3_synthesize_final(
         stage1_results: Individual model responses from Stage 1
         stage2_results: Rankings from Stage 2
         mode: "standard" or "persona"
+        chairman_model: Model to use for synthesis; falls back to CHAIRMAN_MODEL
 
     Returns:
         Dict with 'model' and 'response' keys
     """
+    chairman = chairman_model or CHAIRMAN_MODEL
     # Build comprehensive context for chairman
     if mode == "persona":
         stage1_text = "\n\n".join([
@@ -241,17 +254,19 @@ async def stage3_synthesize_final(
     messages = [{"role": "user", "content": chairman_prompt}]
 
     # Query the chairman model
-    response = await query_model(CHAIRMAN_MODEL, messages)
+    logger.info("stage3 synthesizing with chairman=%s mode=%s", chairman, mode)
+    response = await query_model(chairman, messages)
 
     if response is None:
         # Fallback if chairman fails
+        logger.warning("stage3 chairman model=%s failed to respond", chairman)
         return {
-            "model": CHAIRMAN_MODEL,
+            "model": chairman,
             "response": "Error: Unable to generate final synthesis."
         }
 
     return {
-        "model": CHAIRMAN_MODEL,
+        "model": chairman,
         "response": response.get('content', '')
     }
 
@@ -385,8 +400,8 @@ async def suggest_personas(user_query: str) -> List[Dict[str, str]]:
         if "personas" in data and isinstance(data["personas"], list) and len(data["personas"]) == 3:
             return data["personas"]
     except Exception as e:
-        print(f"Error parsing generated personas JSON: {e}")
-        
+        logger.warning("persona JSON parse failed, using defaults: %s", e)
+
     return default_personas
 
 
@@ -409,6 +424,7 @@ async def generate_conversation_title(user_query: str) -> str:
 
     if response is None:
         # Fallback to a generic title
+        logger.warning("title generation failed, using fallback title")
         return "New Conversation"
 
     title = response.get('content', 'New Conversation').strip()
@@ -427,7 +443,8 @@ async def run_full_council(
     user_query: str,
     mode: str = "standard",
     personas: Optional[List[Dict[str, str]]] = None,
-    mapping_option: Optional[str] = "round_robin"
+    mapping_option: Optional[str] = "round_robin",
+    chairman_model: Optional[str] = None
 ) -> Tuple[List, List, Dict, Dict]:
     """
     Run the complete 3-stage council process.
@@ -437,6 +454,7 @@ async def run_full_council(
         mode: "standard" or "persona"
         personas: Optional list of personas
         mapping_option: "round_robin" or "matrix"
+        chairman_model: Model for Stage 3 synthesis; falls back to CHAIRMAN_MODEL
 
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
@@ -478,7 +496,8 @@ async def run_full_council(
         user_query,
         stage1_results,
         stage2_results,
-        mode=mode
+        mode=mode,
+        chairman_model=chairman_model
     )
 
     # Prepare metadata

@@ -115,10 +115,11 @@ export const api = {
    * @param {string} mode - The mode ('standard' or 'persona')
    * @param {Array} personas - The list of custom personas
    * @param {string} mappingOption - Model mapping option ('round_robin' or 'matrix')
+   * @param {string} chairmanModel - Model for Stage 3 synthesis ('' = backend default)
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, mode, personas, mappingOption, onEvent) {
+  async sendMessageStream(conversationId, content, mode, personas, mappingOption, chairmanModel, onEvent) {
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
@@ -130,7 +131,8 @@ export const api = {
           content,
           mode,
           personas,
-          mapping_option: mappingOption
+          mapping_option: mappingOption,
+          chairman_model: chairmanModel || null
         }),
       }
     );
