@@ -1,8 +1,9 @@
 # PRD: Live Council Discussion (Interactive Persona Deliberation)
 
-**Status:** Draft v4
+**Status:** Draft v5
 **Author:** Nishant (concept) / drafted with Claude
 **Date:** 2026-07-02
+**v5 changes:** Agenda drafting moves from the Moderator to the **Chair** (agenda-setting is a substantive framing decision; a **reasoning/thinking model** is now the recommended default for the Chair). Added an **agenda challenge round** (§6.2): before the user gate, each persona receives the draft agenda and gets exactly **one chance** — announced as such — to argue succinctly for an addition; the Chair rules admit/fold/reject on each argument with reasons on the record. The user still holds the final gate and can re-add anything rejected.
 **v4 changes:** Added §13 — an optional, per-session **persona airtime budget** mechanic (scarcity forces personas to spend words only on points they're genuinely convinced about) plus an **A/B experiment framework** (paired-run harness, automatic metrics, blind LLM judge, in-product variant tagging) to test budget vs. no-budget before deciding whether it becomes a default.
 **v3 changes:** Added an **impact round** — after the last ruling, each persona receives the final decision log (dissent dispositions included) and reports the impact on its domain (additional work, steps, considerations, dependencies). The closing output is now **two documents**: a **full report** (all discussions, decisions, rationale, important dissent, way forward) and a **concise decision brief** (decisions plus unresolved items and close/reversible calls with their dependencies).
 **v2 changes:** The former single "Chairman" is split into **two agents** — a **Moderator** (facilitator, strictly neutral) and a **Chair** (adjudicator with delegated decision authority). Added: an explicit decision hierarchy (User > Chair > Personas), a decision contract that prohibits split-the-difference non-decisions, a close-call procedure where divided parties present closing statements before the Chair rules, a "challenge decision" user intervention, and **per-persona briefings** — the user can give any individual persona additional private context via text or file attachments, at setup or mid-discussion.
@@ -73,7 +74,7 @@ These are the invariants an implementing AI model must hold across every phase. 
 
 8. **Close calls get final arguments, then a ruling — never a blend.** Before ruling, the Chair reviews the point's record (structured call). If the decision is genuinely close, it names its key unresolved question and the divided parties each give one closing statement — at most once per point — before the Chair rules. If it's *still* close, the Chair decides anyway, flags the ruling low-confidence/reversible, and generates a validation follow-up task. Splitting the difference to avoid deciding is a prohibited output.
 
-9. **Everything is budgeted.** Per-point and per-session turn caps (§6.5) are hard limits enforced by the orchestrator, not suggestions in a prompt. When a budget is hit, the Chair is forced to rule on what's on the record ("in the interest of time…").
+9. **Everything is budgeted.** Per-point and per-session turn caps (§6.6) are hard limits enforced by the orchestrator, not suggestions in a prompt. When a budget is hit, the Chair is forced to rule on what's on the record ("in the interest of time…").
 
 10. **Degrade gracefully, never silently.** If a persona's model call fails after retry, the Moderator notes on the record that the persona is unavailable for that turn and continues. If a structured output fails to parse, fall back to a defined default (§10). Never crash the session; never hide a failure from the transcript.
 
@@ -94,9 +95,18 @@ Step 1  FRAME      User describes the problem (+ optional context, constraints, 
 Step 2  PERSONAS   Moderator proposes 3–5 personas with focus areas → user edits/adds/removes/
                    re-weights, assigns models, and optionally gives any persona a private
                    briefing (text and/or attached files) → confirms.               [GATE]
-Step 3  AGENDA     Moderator drafts discussion agenda: 3–7 bullet points, each with a one-line
-                   scope and a designated lead persona → user edits/reorders/deletes/adds →
-                   confirms.                                                       [GATE]
+Step 3  AGENDA     Chair (reasoning model) drafts the discussion agenda: 3–7 bullet points,
+                   each with a one-line scope and a designated lead persona.
+                     → AGENDA CHALLENGE ROUND: each persona receives the draft and gets
+                       exactly ONE chance — told so up front — to argue for an addition
+                       (succinct, strong: what's missing, why it can't fold into an existing
+                       point, ≤150 words) or to pass on the record. The Chair then rules on
+                       every argument in one turn: admit (new point, with lead), fold (expand
+                       an existing point's scope), or reject — each with a one-line reason.
+                     → user reviews the final agenda WITH the challenge log (admitted and
+                       rejected proposals visible), edits/reorders/deletes/adds — including
+                       re-adding anything the Chair rejected (sponsor override) → confirms.
+                                                                                   [GATE]
 Step 4  DISCUSS    Live chat. For each agenda point:
                      a. Moderator opens the point, frames what's at stake, hands to the lead.
                      b. Lead persona presents its position (recommendation + reasoning).
@@ -171,12 +181,12 @@ Under the hood these are the same thing: the client drives turn generation; auto
 
 | Role | Played by | Responsibilities |
 |---|---|---|
-| **Moderator** (facilitator) | `DISCUSSION_MODERATOR_MODEL` — default `google/gemini-2.5-flash` (cheap + fast; also runs all structured flow calls) | Propose personas and agenda; open points; pick lead + invited speakers via structured decisions; enforce budgets; acknowledge, classify, and route interventions; convene closing statements. **Strictly neutral — never expresses a substantive opinion and never decides anything substantive.** |
-| **Chair** (adjudicator) | `DISCUSSION_CHAIR_MODEL` — default `CHAIRMAN_MODEL`, selectable per session in the UI | Speaks only at decision moments. Reviews each point's record; calls for closing statements when the decision is close; then **rules**: one committed course of action, rejected alternatives named with reasons, dissent recorded as overruled or accommodated, confidence and reversibility flagged. Responds to decision challenges (revise or defend once). Produces the two closing documents: the full report and the decision brief. Accountable for every ruling; overrideable only by the user. |
+| **Moderator** (facilitator) | `DISCUSSION_MODERATOR_MODEL` — default `google/gemini-2.5-flash` (cheap + fast; also runs all structured flow calls) | Propose personas; open points; pick lead + invited speakers via structured decisions; enforce budgets; acknowledge, classify, and route interventions; convene closing statements and the agenda challenge round. **Strictly neutral — never expresses a substantive opinion and never decides anything substantive.** |
+| **Chair** (adjudicator) | `DISCUSSION_CHAIR_MODEL` — selectable per session in the UI; **a reasoning/thinking model is the recommended default** (agenda framing and adjudication are the two places deliberate multi-step reasoning pays for itself) | **Drafts the agenda** and rules on agenda challenges (admit/fold/reject, with reasons). Speaks only at decision moments. Reviews each point's record; calls for closing statements when the decision is close; then **rules**: one committed course of action, rejected alternatives named with reasons, dissent recorded as overruled or accommodated, confidence and reversibility flagged. Responds to decision challenges (revise or defend once). Produces the two closing documents: the full report and the decision brief. Accountable for every ruling; overrideable only by the user. |
 | **Persona** (3–5) | Its user-assigned model from `PERSONA_MODEL_CHOICES` | Argue its point of view from its focus area (`weightage` text); present when lead; rebut only when invited; give a closing statement when convened; concede when convinced; deliver an **impact statement** on the final decisions (additional work, steps, considerations, dependencies — in disagree-and-commit mode if overruled); stay in character; keep turns short (§9). **Advisors only — personas never vote.** Numeric `weight` is an input to the Chair's judgment, not a ballot. |
 | **User** | Human | Sponsor of the decision and **final authority**: confirms gates, intervenes, sets binding priorities, can challenge and override any ruling, ultimately owns the outcome. |
 
-**Decision hierarchy: User (sponsor) > Chair (delegated decider) > Personas (advisors).** This ordering is stated in the Chair's and Moderator's prompts and enforced by the intervention rules in §4.2/§6.4.
+**Decision hierarchy: User (sponsor) > Chair (delegated decider) > Personas (advisors).** This ordering is stated in the Chair's and Moderator's prompts and enforced by the intervention rules in §4.2/§6.5.
 
 ---
 
@@ -185,16 +195,40 @@ Under the hood these are the same thing: the client drives turn generation; auto
 ### 6.1 Session states
 
 ```
-CREATED → FRAMING → PERSONA_PROPOSAL → PERSONA_REVIEW ⟲ → AGENDA_PROPOSAL → AGENDA_REVIEW ⟲
-        → DISCUSSION → IMPACT_ROUND → SYNTHESIS → WRAP_QA ⟲ → COMPLETED
+CREATED → FRAMING → PERSONA_PROPOSAL → PERSONA_REVIEW ⟲ → AGENDA_PROPOSAL → AGENDA_CHALLENGE
+        → AGENDA_REVIEW ⟲ → DISCUSSION → IMPACT_ROUND → SYNTHESIS → WRAP_QA ⟲ → COMPLETED
    (any state) → ABORTED          (IMPACT_ROUND skippable by user control)
 ```
 
-- `PERSONA_REVIEW` and `AGENDA_REVIEW` loop on user edits ("re-suggest with this feedback" re-invokes the proposal call with the user's notes appended) until an explicit confirm.
-- `DISCUSSION` contains a nested per-point machine (6.2), iterated over `agenda[]` in confirmed order.
-- `IMPACT_ROUND` is described in 6.3; `SYNTHESIS` produces the two closing documents (full report, then decision brief — two separate Chair calls, the brief distilled from the report + resolutions).
+- `PERSONA_REVIEW` and `AGENDA_REVIEW` loop on user edits ("re-suggest with this feedback" re-invokes the proposal call with the user's notes appended) until an explicit confirm. A re-suggested agenda does **not** re-run `AGENDA_CHALLENGE` — one challenge round per session.
+- `AGENDA_CHALLENGE` is described in 6.2; it runs turn-by-turn (via `/turn`, like the discussion) between the Chair's draft and the user gate.
+- `DISCUSSION` contains a nested per-point machine (6.3), iterated over `agenda[]` in confirmed order.
+- `IMPACT_ROUND` is described in 6.4; `SYNTHESIS` produces the two closing documents (full report, then decision brief — two separate Chair calls, the brief distilled from the report + resolutions).
 
-### 6.2 Per-point states
+### 6.2 Agenda challenge round (before the user gate)
+
+```
+CHALLENGE_OPEN        Moderator: 1 turn. Circulates the Chair's draft agenda on the record and
+                      states the rule explicitly: each persona has EXACTLY ONE opportunity to
+                      propose an addition — there is no second round, so make it succinct and
+                      strong, or pass.
+CHALLENGE_STATEMENT   One turn per persona (weight desc order). Either a recorded pass, or ONE
+                      proposed addition, ≤150 words, structured as: the missing point (title +
+                      one-line scope) · why it materially affects the decision · why it cannot
+                      be folded into an existing agenda point · suggested lead persona.
+                      Proposing more than one addition forfeits all but the first.
+AGENDA_RULING         Chair: 1 turn + structured record. Rules on every proposal in one pass:
+                        • admit — new agenda point (with lead and position in the order),
+                        • fold  — an existing point's scope is expanded to absorb it, or
+                        • reject — with a one-line reason on the record.
+                      Ruling quality bar: judge the ARGUMENT (material impact on the decision),
+                      not the seniority/weight of the proposer. JSON: updated agenda[] +
+                      per-proposal {persona_id, ruling, reason}.
+```
+
+The one-shot rule is the point: scarcity of opportunity forces personas to lead with their strongest case (the same conviction mechanism §13 generalizes with airtime). The round costs no airtime (§13.1) — it precedes the wallets. The user gate that follows shows the full challenge log; rejected proposals can be re-added by the user as a sponsor override.
+
+### 6.3 Per-point states
 
 ```
 POINT_OPEN            Moderator: 1 turn. Introduces the point, frames what's at stake,
@@ -235,7 +269,7 @@ POINT_RULING          Chair: 1 spoken turn + structured record, under the decisi
                       JSON PointResolution schema in §8.
 ```
 
-### 6.3 Impact round (after the last ruling)
+### 6.4 Impact round (after the last ruling)
 
 ```
 IMPACT_OPEN           Moderator: 1 turn. Announces that decisions are final and circulates
@@ -253,7 +287,7 @@ IMPACT_STATEMENT      One turn per persona (agenda-relevance order, ties by weig
 
 Impact statements are ordinary transcript turns (type `impact_statement`) and are a primary input to synthesis: the Chair consolidates their work items into the action-items table and their cross-functional dependencies into the decision brief. If an impact statement surfaces something that *genuinely invalidates* a ruling, the persona may flag it as a `blocking_concern` (one line, structured) — the Chair does not reopen the point automatically, but the concern is listed under "unresolved" in the brief and offered to the user as a challenge candidate.
 
-### 6.4 Intervention handling (uniform rule)
+### 6.5 Intervention handling (uniform rule)
 
 At every turn boundary the orchestrator drains the intervention queue **before** generating the next planned turn:
 
@@ -268,11 +302,12 @@ At every turn boundary the orchestrator drains the intervention queue **before**
      transcript entry ("User briefed <persona>") — no LLM call, no Moderator ack turn;
    - **`challenge`** (targets a resolved point) inserts one Chair turn: revise the ruling (updating its `PointResolution`) or defend it once. A reaffirmed challenge writes a `sponsor_override` onto the resolution and the discussion moves on — the Chair does not re-argue.
 
-### 6.5 Budgets (defaults, all configurable per session)
+### 6.6 Budgets (defaults, all configurable per session)
 
 | Budget | Default |
 |---|---|
-| Agenda points | 3–7 (Moderator proposes; user gate controls final count) |
+| Agenda points | 3–7 (Chair proposes; user gate controls final count) |
+| Agenda challenge round | 1 proposal per persona, ≤150 words, once per session; 1 batch Chair ruling |
 | Turns per point (persona turns, excl. procedure) | 8 |
 | Reply chain depth per exchange | 2 (statement → rebuttal → reply, then Moderator moves on) |
 | Closing-statement rounds per point | 1 round max; max 2 personas, 1 turn each |
@@ -302,9 +337,9 @@ New module **`backend/discussion.py`** — the orchestrator:
 
 **`backend/storage.py`** gains a parallel store: `data/discussions/{id}.json` (don't overload the conversations schema; a discussion is a different shape). List/get/delete mirroring conversation functions. Discussions appear in the sidebar alongside conversations, badged as discussions.
 
-**`backend/openrouter.py`** unchanged, except: add optional `max_tokens` param to `query_model()` (turn-length ceilings) if not already supported.
+**`backend/openrouter.py`** unchanged, except: add optional `max_tokens` param to `query_model()` (turn-length ceilings) if not already supported, and optional passthrough of OpenRouter's `reasoning` parameter (effort/max reasoning tokens) so a thinking-model Chair can be tuned — high effort for agenda drafting and rulings, low/none for structured JSON calls where latency matters.
 
-**`backend/config.py`**: add `DISCUSSION_DEFAULTS` (budgets from §6.5), `DISCUSSION_MODERATOR_MODEL` (default `google/gemini-2.5-flash`), `DISCUSSION_CHAIR_MODEL` (default `CHAIRMAN_MODEL`). Both agent models are per-session overridable; the same model id in both slots is allowed — the separation is in the prompts and call structure, not the weights.
+**`backend/config.py`**: add `DISCUSSION_DEFAULTS` (budgets from §6.6), `DISCUSSION_MODERATOR_MODEL` (default `google/gemini-2.5-flash`), `DISCUSSION_CHAIR_MODEL` — **default a reasoning/thinking model** (e.g. a `:thinking`-variant or reasoning-capable OpenRouter id; falls back to `CHAIRMAN_MODEL` if unset), since agenda framing and adjudication benefit most from deliberate reasoning. Both agent models are per-session overridable; the same model id in both slots is allowed — the separation is in the prompts and call structure, not the weights.
 
 Standard/Persona code paths: **zero behavioral changes.**
 
@@ -327,9 +362,15 @@ POST   /api/discussions/{id}/personas/{pid}/briefing
                                                    delivery stub lands in the transcript). Text is
                                                    extracted from PDF/txt/md at upload time; images
                                                    are stored for multimodal pass-through.
-POST   /api/discussions/{id}/agenda/suggest      → Moderator agenda proposal (accepts feedback for
-                                                   re-suggestion)
-POST   /api/discussions/{id}/agenda/confirm      → body: final agenda[] (ordered points, lead per point)
+POST   /api/discussions/{id}/agenda/suggest      → Chair agenda proposal (reasoning model; accepts
+                                                   feedback for re-suggestion). First call moves the
+                                                   session into AGENDA_CHALLENGE — the client then
+                                                   drives the challenge round with /turn until the
+                                                   AGENDA_REVIEW gate is reached (re-suggestions
+                                                   don't repeat the challenge round).
+POST   /api/discussions/{id}/agenda/confirm      → body: final agenda[] (ordered points, lead per
+                                                   point — may include user re-adds of rejected
+                                                   challenge proposals)
 POST   /api/discussions/{id}/turn                → generate the next turn(s). SSE response:
                                                    turn_start {speaker, type, point_id} →
                                                    (optional) token deltas → turn_complete {TranscriptEntry}
@@ -375,7 +416,7 @@ This keeps per-turn prompt size roughly O(current point + summaries), not O(enti
   "problem": "string",
   "user_context": "string | null",
   "config": { "moderator_model": "...", "chair_model": "...",
-              "budgets": { /* §6.5 */ }, "gap_ms": 2000 },
+              "budgets": { /* §6.6 */ }, "gap_ms": 2000 },
   "personas": [
     { "id": "p1", "name": "Security Architect", "weightage": "focus text…",
       "facets": ["…"], "model": "openrouter/id", "weight": 0.4, "color": "#…",
@@ -385,8 +426,15 @@ This keeps per-turn prompt size roughly O(current point + summaries), not O(enti
                            "extracted_text": "…|null" } ]   // files on disk under
       } }                                                    // data/discussions/{id}/attachments/
   ],
+  "agenda_challenges": [                     // one entry per persona, from the challenge round
+    { "persona_id": "p2", "turn_id": 9, "passed": false,
+      "proposal": { "title": "…", "scope": "…", "suggested_lead": "p2" },
+      "argument": "≤150-word case",
+      "ruling": "admitted|folded|rejected", "folded_into": "a3|null", "reason": "one line" }
+  ],
   "agenda": [
     { "id": "a1", "order": 1, "title": "string", "scope": "one-liner",
+      "origin": "chair|persona_challenge|user",
       "lead_persona_id": "p1", "status": "resolved|active|pending|skipped",
       "resolution": {
         "decision": "the ONE committed course of action",
@@ -405,7 +453,7 @@ This keeps per-turn prompt size roughly O(current point + summaries), not O(enti
   "transcript": [
     { "turn_id": 17, "ts": "iso8601", "point_id": "a2",
       "speaker": { "kind": "moderator|chair|persona|user", "persona_id": "p1|null" },
-      "type": "point_open|lead_statement|invited_response|rebuttal|handoff|closing_statement|ruling|challenge_response|intervention|intervention_ack|briefing_delivered|impact_open|impact_statement|synthesis|qa",
+      "type": "challenge_open|agenda_challenge|agenda_ruling|point_open|lead_statement|invited_response|rebuttal|handoff|closing_statement|ruling|challenge_response|intervention|intervention_ack|briefing_delivered|impact_open|impact_statement|synthesis|qa",
       "content": "markdown",
       "meta": { "model": "openrouter/id", "intervention_type": "override|context|challenge|…",
                 "invited_reason": "…" } }
@@ -442,14 +490,17 @@ Moderator prompts are prefixed `MOD_`, Chair prompts `CHAIR_` — two distinct a
 | Prompt | Caller | Notes |
 |---|---|---|
 | `DISCUSSION_PERSONA_SUGGESTION_PROMPT` | personas/suggest (Moderator) | Extends existing Stage-0 prompt: 3–5 personas, each with a *focus area* and *likely stance/bias*; instructed to pick personas whose interests naturally conflict on this problem. Accepts optional user feedback block for re-suggestion. |
-| `AGENDA_PROMPT` | agenda/suggest (Moderator) | Given problem + confirmed personas: 3–7 discussion points, each with scope one-liner, designated lead persona (whose expertise it touches most), and a note on where conflict is expected. JSON output. |
+| `AGENDA_PROMPT` | agenda/suggest (**Chair**, reasoning model) | Given problem + confirmed personas: 3–7 discussion points, each with scope one-liner, designated lead persona (whose expertise it touches most), and a note on where conflict is expected. JSON output. |
+| `MOD_CHALLENGE_OPEN_PROMPT` | CHALLENGE_OPEN | Circulates the draft agenda; states the one-shot rule explicitly ("you will not get a second opportunity — argue succinctly and strongly, or pass"). Neutral, procedural. |
+| `PERSONA_AGENDA_CHALLENGE_PROMPT` | CHALLENGE_STATEMENT | One recorded pass OR one addition, ≤150 words: missing point (title + scope) · why it materially affects the decision · why it can't fold into an existing point · suggested lead. The one-shot framing is restated in the persona's own instruction. |
+| `CHAIR_AGENDA_RULING_PROMPT` | AGENDA_RULING | Rule on every proposal in one turn: admit / fold (naming the absorbing point) / reject, one-line reason each; judge the argument's material impact on the decision, not the proposer's weight. Dual output: spoken ruling + JSON {updated agenda[], per-proposal rulings}. |
 | `MOD_POINT_OPEN_PROMPT` | POINT_OPEN | Procedural voice; ≤120 words; frame the stakes; hand to lead by name. Neutrality clause: never state a substantive view. |
 | `PERSONA_TURN_PROMPT` (system) | all persona turns | Identity, focus (`weightage` text), facets; the persona's **private briefing block** ("the sponsor has shared the following with you privately — use it in your arguments and cite it where relevant, but do not reveal it was a private briefing"); the behavioral contract: stay in character, ≤250 words, reference specific prior statements when disagreeing, concede explicitly when convinced, always land on a concrete position, address colleagues by name, no meta-commentary about being an AI or the format. Turn-specific instruction appended per state — including the **closing-statement variant**: strongest remaining argument, a direct answer to the Chair's stated unresolved question, and what you would concede; no new topics. |
 | `MOD_CONFLICT_CHECK_PROMPT` | CONFLICT_CHECK | JSON-only: stance per non-lead persona given the lead statement. Not spoken; stored in `debug_records`. |
 | `MOD_FLOW_DECISION_PROMPT` | REBUTTAL_LOOP | JSON-only: {action: invite_reply\|next_speaker\|to_chair, next_speaker?, reason}. Includes remaining turn budget so the model can economize. |
 | `MOD_HANDOFF_PROMPT` | INVITED_RESPONSE / CLOSING_STATEMENTS | 1–2 sentence spoken handoff, naming the invitee and the tension being explored; for closing statements, also states the Chair's key unresolved question on the record. |
 | `CHAIR_DECISION_REVIEW_PROMPT` | DECISION_REVIEW | JSON-only over the point's record: {closeness: clear\|close, leaning, key_unresolved_question, divided_parties}. Stored in `debug_records`. |
-| `CHAIR_RULING_PROMPT` | POINT_RULING | The **decision contract** (§6.2): commit to one course of action; "it depends"/split-the-difference blends prohibited; name rejected alternatives and why; record dissent as overruled or accommodated; tie-break order = user PriorityUpdates > persona weights > own judgment; still-close ⇒ rule anyway + low-confidence/reversible flag + validation follow-up task. Dual output: spoken ruling (≤300 words) + `PointResolution` JSON. States the decision hierarchy (User > Chair > Personas). |
+| `CHAIR_RULING_PROMPT` | POINT_RULING | The **decision contract** (§6.3): commit to one course of action; "it depends"/split-the-difference blends prohibited; name rejected alternatives and why; record dissent as overruled or accommodated; tie-break order = user PriorityUpdates > persona weights > own judgment; still-close ⇒ rule anyway + low-confidence/reversible flag + validation follow-up task. Dual output: spoken ruling (≤300 words) + `PointResolution` JSON. States the decision hierarchy (User > Chair > Personas). |
 | `CHAIR_CHALLENGE_PROMPT` | challenge intervention | One turn: revise the ruling (with updated `PointResolution`) or defend it by restating the decisive reasoning — never both, never more than once. A reaffirmed challenge becomes a recorded `sponsor_override`; do not re-argue. |
 | `MOD_INTERVENTION_ACK_PROMPT` | intervention drain | Classify intent if untyped; acknowledge; state concrete effect; emit `PriorityUpdate` JSON when it's an override (binding on the Chair). Routes challenges to the Chair. |
 | `MOD_IMPACT_OPEN_PROMPT` | IMPACT_OPEN | Announces decisions are final; renders the decision log (rulings + dissent dispositions + sponsor overrides) on the record; invites each persona in turn for an impact statement. Neutral, procedural. |
@@ -469,13 +520,15 @@ Formatting contracts that code parses (JSON schemas, the dual spoken+JSON ruling
 |---|---|
 | Persona model call fails (after 1 retry) | Moderator turn on the record: "<Persona> is unavailable; noting their prior stated position." Point continues. If the *lead* fails on its statement, Moderator offers the user (via a gate-like `state` payload) to retry, reassign the persona's model, or skip the point. |
 | Structured Moderator call unparseable | One re-ask with "return only JSON". Then defaults: CONFLICT_CHECK → invite all non-lead personas in weight order (capped by budget); FLOW_DECISION → `to_chair`. |
+| Persona fails its agenda-challenge turn (after 1 retry) | Recorded as a pass with a note; the round continues. |
+| `AGENDA_RULING` JSON unparseable | One re-ask, then default: no proposals admitted, all marked `rejected (ruling unparseable)` — the user sees them in the challenge log at the gate and can re-add manually. Never silently drop proposals. |
 | `DECISION_REVIEW` unparseable | One re-ask, then treat as `clear` (skip closing statements, go straight to ruling). |
 | `PointResolution` JSON missing from ruling | One re-ask, then store the spoken ruling text as `decision`, empty structured fields, flag `"degraded": true`. |
 | Chair model call fails (after 1 retry) | Fall back to the Moderator model *for that one ruling only*, flag the resolution `"degraded": true`, and note the substitution on the record. |
 | `/turn` while a turn is generating | 409; client treats as "in flight" and re-polls session. |
 | Server restart mid-discussion | Session JSON is write-through; rehydrate and continue. A turn that died mid-generation simply never happened (no partial writes). |
 | User closes tab | Nothing generates (client-driven turns) — the session naturally freezes and resumes on return. This is a *feature* of the transport choice. |
-| Budget exhausted | Forced ruling/synthesis with on-record acknowledgment (§6.5). |
+| Budget exhausted | Forced ruling/synthesis with on-record acknowledgment (§6.6). |
 | Attachment not usable (PDF text extraction fails; image attached but persona's model is not multimodal) | Upload succeeds with a warning surfaced in the UI; the briefing block notes "attachment <name> could not be read" so the persona (and user) know it's not in play. Never silently drop content. |
 | Persona fails its impact statement (after 1 retry) | Moderator notes it on the record; the report lists that persona's impact as "not obtained"; session continues. |
 | All models for a point fail | Point marked `skipped` with a transcript note; session continues; surfaced in synthesis follow-ups. |
@@ -487,18 +540,18 @@ Formatting contracts that code parses (JSON schemas, the dual spoken+JSON ruling
 Each phase is a working increment with acceptance criteria. Do not reorder. Commit per phase.
 
 ### Phase 1 — Core orchestrator + state machine (no UI)
-- `discussion.py`: session dataclass, state machine (§6.1–6.2) **with the two-agent split (Moderator + Chair as separate prompt contexts and configurable models)**, budgets, transcript, JSON persistence in `data/discussions/`. Text-only persona briefings supported in prompt assembly from day one (attachments come in Phase 5).
+- `discussion.py`: session dataclass, state machine (§6.1–6.4, incl. the agenda challenge round) **with the two-agent split (Moderator + Chair as separate prompt contexts and configurable models)**, budgets, transcript, JSON persistence in `data/discussions/`. Text-only persona briefings supported in prompt assembly from day one (attachments come in Phase 5).
 - All prompts from §9 in `prompts.py`.
 - Config additions (§7.1).
 - **Smoke script** `scratch/test_live_discussion.py`: creates a session for a canned problem, auto-confirms suggested personas/agenda, loops `advance()` to completion, prints the transcript with speaker labels (moderator/chair/persona), prints the synthesis. Include a flag to force `DECISION_REVIEW` to return `close` so the closing-statements path is exercised deterministically. (Follow the existing `scratch/test_persona_council.py` style; run with `uv run python scratch/test_live_discussion.py`.)
-- ✅ *Accept:* smoke script produces a coherent multi-point discussion where personas reference each other's arguments; every point ends with a parseable `PointResolution` that **names a decision and at least one rejected alternative** (no split-the-difference outputs in spot checks); the forced close-call run shows closing statements from the divided parties followed by a ruling flagged low-confidence/reversible with a validation follow-up; after the last ruling, every persona delivers an impact statement (overruled personas in disagree-and-commit mode) and the run ends with **both** a full report and a ≤1-page decision brief; session JSON on disk fully describes the run; budgets demonstrably cap a point (test with budget=2).
+- ✅ *Accept:* smoke script produces a coherent multi-point discussion where personas reference each other's arguments; the agenda challenge round runs before the (auto-confirmed) gate — every persona either passes or makes one ≤150-word proposal and the Chair's batch ruling admits/folds/rejects each with a reason recorded in `agenda_challenges`; every point ends with a parseable `PointResolution` that **names a decision and at least one rejected alternative** (no split-the-difference outputs in spot checks); the forced close-call run shows closing statements from the divided parties followed by a ruling flagged low-confidence/reversible with a validation follow-up; after the last ruling, every persona delivers an impact statement (overruled personas in disagree-and-commit mode) and the run ends with **both** a full report and a ≤1-page decision brief; session JSON on disk fully describes the run; budgets demonstrably cap a point (test with budget=2).
 
 ### Phase 2 — HTTP API
 - All endpoints from §7.2 in `main.py`, including the per-turn SSE response (whole-turn events; no token deltas yet), gates returning state-only, the 409 in-flight guard, and intervention queueing (including `target_point` for challenges).
 - ✅ *Accept:* the full flow is drivable with `curl`/httpie alone: create → suggest/confirm personas → suggest/confirm agenda → repeated `/turn` → completed session with synthesis; an `/intervene` POST between turns visibly changes the next turn; refreshing via `GET` mid-discussion returns consistent state.
 
 ### Phase 3 — Frontend: watchable step-mode discussion
-- New discussion flow in the frontend: creation screen (Step 1), persona review reusing existing persona-card UI (Step 2), agenda review (Step 3), transcript view with moderator/chair/persona styling — Chair rulings as decision cards — and agenda rail (Step 4, **step mode only**: a "Next turn" button), impact round rendered as regular turns (Step 5), decision panel with Brief/Full-report tabs (Step 6). Sidebar lists discussions.
+- New discussion flow in the frontend: creation screen (Step 1), persona review reusing existing persona-card UI (Step 2), agenda challenge round rendered as transcript turns followed by agenda review showing the challenge log — admitted/folded/rejected badges with the Chair's reasons, rejected proposals one-click re-addable (Step 3), transcript view with moderator/chair/persona styling — Chair rulings as decision cards — and agenda rail (Step 4, **step mode only**: a "Next turn" button), impact round rendered as regular turns (Step 5), decision panel with Brief/Full-report tabs (Step 6). Sidebar lists discussions.
 - ✅ *Accept:* a user can run an entire discussion from the browser clicking "Next turn", with correct attribution, colors, agenda progress, decision cards on each ruling, impact statements in the transcript, and a decision panel showing both the brief and the full report at the end.
 
 ### Phase 4 — Interventions + pacing
@@ -521,11 +574,11 @@ Each phase is a working increment with acceptance criteria. Do not reorder. Comm
 ## 12. Cost & Latency Expectations (set user expectations in UI)
 
 Rough per-session call count with defaults (5 points, 4 personas, ~6 persona turns/point average):
-- Setup: ~3 calls (personas, agenda, title)
+- Setup: ~3 calls (personas, agenda, title) + agenda challenge round: 1 open + 1 per persona + 1 ruling ≈ 6
 - Per point: 1 open + 1 lead + 1 conflict-check + ~4 invited/rebuttal + ~3 flow-decisions + 1 decision-review + 0–2 closing statements + 1 ruling ≈ 12–14 → ~65 for 5 points
 - Impact round: 1 open + 1 per persona ≈ 5
 - Synthesis (report + brief) + acks/challenges: ~7
-- **Total ≈ 75–90 calls**, most of them short and most on the cheap Moderator model — cost is dominated by persona turns and Chair rulings/synthesis. This exceeds a Persona-mode run (~10 calls) several-fold; the turn-budget indicator and the session hard cap exist precisely for this, and the UI should show a running call count.
+- **Total ≈ 80–95 calls**, most of them short and most on the cheap Moderator model — cost is dominated by persona turns and Chair rulings/synthesis. This exceeds a Persona-mode run (~10 calls) several-fold; the turn-budget indicator and the session hard cap exist precisely for this, and the UI should show a running call count.
 
 Latency per turn ≈ one model call (2–15s). Auto-advance therefore feels like a real chat with people typing — that's desirable, not a bug to optimize away.
 
@@ -540,7 +593,7 @@ Latency per turn ≈ one model call (2–15s). Auto-advance therefore feels like
 ### 13.1 Design (when `airtime.enabled` for a session)
 
 - **Wallet.** Each persona gets an allotment in words, from a session pool (default 2,000 words) split **proportionally to numeric `weight`** — this finally makes weight mean something personas can feel, not just a Chair-side tiebreaker.
-- **What costs airtime.** Elective speech at full rate: accepting an invitation, rebuttals, replies. **Assigned duties at half rate:** lead statements, closing statements, impact statements — the persona didn't choose them, and the meeting can't function if they're silenced; at zero balance, assigned duties still get a minimum floor allotment (e.g. 100 words). Passing is free.
+- **What costs airtime.** Elective speech at full rate: accepting an invitation, rebuttals, replies. **Assigned duties at half rate:** lead statements, closing statements, impact statements — the persona didn't choose them, and the meeting can't function if they're silenced; at zero balance, assigned duties still get a minimum floor allotment (e.g. 100 words). Passing is free. The agenda challenge round (§6.2) is free — it precedes the discussion and already carries its own scarcity mechanism (one shot).
 - **Spend-or-pass decision.** When invited to speak electively, the persona first makes a cheap structured call: `{action: speak|pass, words_requested, one_line_reason}` given its balance and the point at stake. A pass goes on the record via the Moderator ("<Persona> defers, conserving their remaining airtime") — visible prioritization. A speak sets that turn's `max_tokens` to `min(words_requested, balance, per-turn cap)`.
 - **No mid-sentence truncation.** The budget gates *whether and how long* a persona speaks (declared before the turn), never chops rendered text; the turn prompt states the allotment so the model composes to fit.
 - **Visibility.** A persona sees only its own balance. Moderator and Chair see all balances — spending patterns are decision-relevant signal ("X went quiet for three points to fight here; weigh accordingly", stated in `CHAIR_RULING_PROMPT` when the mechanic is on). Other personas see passes (they're on the record) but not balances. UI: airtime meters on the cast strip.
@@ -572,6 +625,7 @@ Implement as **Phase 7** (after Phase 6): the mechanic behind its config flag, t
 7. **Should the Chair (or other personas) see a persona's briefing contents?** Default **no** — briefings are private to the briefed persona; facts from them enter the record only through that persona's spoken arguments, exactly like an expert's private knowledge in a real meeting. The transcript's delivery stub keeps the *existence* of the briefing on the record. Revisit if users find rulings ignore un-voiced briefing facts (the fix would be a user choice per briefing: private vs. on the record).
 8. **Airtime accounting unit (§13): words or model tokens?** Default **words** — model-agnostic (personas run on different tokenizers), human-legible in the UI, and enforcement via `max_tokens` can approximate (≈1.4 tokens/word) since the ceiling is a composition target, not a truncation point.
 9. **Should assigned duties (lead/closing/impact) cost airtime at all?** Default half rate with a zero-balance floor (§13.1) — free would let a persona rebut infinitely via its lead role on later points; full rate could silence a heavily-weighted persona's obligations. Revisit with A/B data.
+10. **Can personas argue for agenda *removals* or reordering in the challenge round?** Default **additions only** — a persona arguing to remove a point is a conflict that belongs in the discussion of that point, and reordering is the Chair's/user's call. Revisit if challenge logs show personas folding removal arguments into addition proposals.
 
 ---
 
@@ -579,6 +633,7 @@ Implement as **Phase 7** (after Phase 6): the mechanic behind its config flag, t
 
 1. A non-technical user can go from problem → confirmed cast → confirmed agenda → watched discussion → decision package without reading docs.
 2. In ≥80% of sessions on real prompts, at least one persona *changes or concedes a position* in response to another's argument — the debate is real, not parallel monologues (spot-check qualitatively).
+2a. The agenda challenge round produces genuine selectivity: across sessions, personas sometimes pass and the Chair sometimes rejects — if every persona always proposes and every proposal is always admitted, the one-shot mechanism isn't discriminating (tune `CHAIR_AGENDA_RULING_PROMPT`'s bar).
 3. **Rulings are decisive:** in spot checks, every `PointResolution` commits to a single course of action and names at least one rejected alternative; zero split-the-difference non-decisions.
 4. A user intervention mid-discussion is acknowledged within one turn and demonstrably alters at least the current point's ruling; a challenged ruling gets exactly one revise-or-defend response, and a reaffirmed challenge is recorded as a sponsor override.
 5. Every completed session (impact round not skipped) contains one impact statement per persona, each naming at least one concrete work item or dependency — and overruled personas' statements execute the decision rather than re-arguing it.
