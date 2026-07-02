@@ -1,4 +1,6 @@
 import ReactMarkdown from 'react-markdown';
+import CopyButton from './CopyButton';
+import { buildStage3Html } from '../utils/exportRichText';
 import './Stage3.css';
 
 export default function Stage3({ finalResponse }) {
@@ -8,7 +10,10 @@ export default function Stage3({ finalResponse }) {
 
   return (
     <div className="stage stage3">
-      <h3 className="stage-title">Stage 3: Final Council Answer</h3>
+      <div className="stage-header">
+        <h3 className="stage-title">Stage 3: Final Council Answer</h3>
+        <CopyButton getHtml={() => buildStage3Html(finalResponse)} label="Copy stage" />
+      </div>
       <div className="final-response">
         <div className="chairman-label">
           Chairman: {finalResponse.model.split('/')[1] || finalResponse.model}

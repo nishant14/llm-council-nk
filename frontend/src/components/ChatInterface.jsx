@@ -4,6 +4,8 @@ import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import UserGuide from './UserGuide';
+import CopyButton from './CopyButton';
+import { buildFullAnswerHtml } from '../utils/exportRichText';
 import { api } from '../api';
 import './ChatInterface.css';
 
@@ -22,6 +24,7 @@ export default function ChatInterface({
   const [isSuggestingPersonas, setIsSuggestingPersonas] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [availableModels, setAvailableModels] = useState([]);
+  const [chairmanModel, setChairmanModel] = useState(''); // '' = backend default
 
   const messagesEndRef = useRef(null);
 
@@ -104,8 +107,8 @@ export default function ChatInterface({
 
       // Standard send or persona run from Step 2
       const options = mode === 'persona'
-        ? { mode: 'persona', personas, mappingOption }
-        : { mode: 'standard' };
+        ? { mode: 'persona', personas, mappingOption, chairmanModel }
+        : { mode: 'standard', chairmanModel };
 
       onSendMessage(input, options);
       setInput('');
@@ -154,10 +157,15 @@ export default function ChatInterface({
               ) : (
                 <div className="assistant-message">
                   <div className="message-label">
-                    LLM Council {msg.metadata?.mode === 'persona' && (
-                      <span className="mode-badge">
-                        Persona Mode ({msg.metadata?.mapping_option === 'matrix' ? 'Matrix' : 'Round-Robin'})
-                      </span>
+                    <span>
+                      LLM Council {msg.metadata?.mode === 'persona' && (
+                        <span className="mode-badge">
+                          Persona Mode ({msg.metadata?.mapping_option === 'matrix' ? 'Matrix' : 'Round-Robin'})
+                        </span>
+                      )}
+                    </span>
+                    {(msg.stage1 || msg.stage2 || msg.stage3) && (
+                      <CopyButton getHtml={() => buildFullAnswerHtml(msg)} label="Export answer" />
                     )}
                   </div>
 
@@ -235,6 +243,27 @@ export default function ChatInterface({
               >
                 Persona Council (Variation 2)
               </button>
+            </div>
+          )}
+
+          {step === 1 && (
+            <div className="chairman-selector">
+              <label htmlFor="chairman-model">Chairman model (final synthesis):</label>
+              <select
+                id="chairman-model"
+                value={chairmanModel}
+                onChange={(e) => setChairmanModel(e.target.value)}
+                disabled={isSuggestingPersonas}
+              >
+                <option value="">Default (Gemini 2.5 Flash)</option>
+                {modelsByTier.map(({ tier, models }) => (
+                  <optgroup key={tier} label={TIER_LABELS[tier]}>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>{m.id}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
             </div>
           )}
 

@@ -80,94 +80,129 @@
   padding-bottom: 8px;
 }
 
-.stages-flow {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 20px;
+/* 3-stage process flow diagram */
+.process-flow {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.stage-card {
+.flow-node {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 20px;
-  position: relative;
+  padding: 18px 14px;
+  text-align: center;
+  flex: 1 1 150px;
+  min-width: 140px;
+  max-width: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
-  transition: transform 0.2s, box-shadow 0.2s;
 }
 
-.stage-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.05);
+.flow-node-final {
+  background: #f0fff0;
+  border-color: #c8e6c8;
+  justify-content: center;
 }
 
-.stage-badge {
+.flow-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.flow-badge {
   display: inline-block;
-  padding: 4px 8px;
+  padding: 3px 8px;
   background: #e8f0fe;
   color: #4a90e2;
   font-size: 11px;
   font-weight: 600;
   border-radius: 6px;
-  margin-bottom: 12px;
 }
 
-.stage-card h3 {
-  font-size: 15px;
-  color: #2d3748;
-  margin: 0 0 8px 0;
-}
-
-.stage-card p {
+.flow-caption {
   font-size: 13px;
-  color: #718096;
-  line-height: 1.5;
-  margin: 0;
+  color: #4a5568;
+  line-height: 1.4;
 }
 
-.modes-grid {
+.flow-arrow {
+  display: flex;
+  align-items: center;
+  font-size: 24px;
+  color: #a0aec0;
+}
+
+/* Mode choice */
+.mode-choice {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
 }
 
-.mode-card {
+.mode-branch {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 20px;
+  text-align: center;
   display: flex;
-  gap: 16px;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .mode-icon {
-  font-size: 24px;
+  font-size: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   background: #f7fafc;
-  border-radius: 10px;
-  flex-shrink: 0;
+  border-radius: 14px;
 }
 
-.mode-card div {
-  flex: 1;
-}
-
-.mode-card h3 {
-  font-size: 15px;
+.mode-name {
+  font-size: 16px;
+  font-weight: 600;
   color: #2d3748;
-  margin: 0 0 6px 0;
 }
 
-.mode-card p {
+.mapping-mini {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.mini-option {
+  flex: 1;
+  background: #f7fafc;
+  border: 1px solid #edf2f7;
+  border-radius: 10px;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.mini-icon {
+  font-size: 22px;
+}
+
+.mini-name {
   font-size: 13px;
-  color: #718096;
-  line-height: 1.5;
-  margin: 0;
+  font-weight: 600;
+  color: #4a5568;
 }
 
 .user-guide-cta {
@@ -196,7 +231,23 @@
 }
 
 @media (max-width: 640px) {
-  .modes-grid {
+  .mode-choice {
     grid-template-columns: 1fr;
+  }
+
+  /* Stack the process flow vertically and point arrows downward */
+  .process-flow {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .flow-node {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .flow-arrow {
+    transform: rotate(90deg);
+    justify-content: center;
   }
 }

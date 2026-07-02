@@ -10,11 +10,16 @@ from pathlib import Path
 import uuid
 import json
 import asyncio
+import logging
 import os
 
 from . import storage
 from .config import PERSONA_MODEL_CHOICES
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings, suggest_personas
+from .logging_config import configure_logging
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="LLM Council API")
 
@@ -38,6 +43,8 @@ class SendMessageRequest(BaseModel):
     mode: str = "standard"
     personas: Optional[List[Dict[str, Any]]] = None
     mapping_option: Optional[str] = "round_robin"
+    # Model for Stage 3 synthesis; None falls back to CHAIRMAN_MODEL
+    chairman_model: Optional[str] = None
 
 
 class SuggestPersonasRequest(BaseModel):
@@ -142,7 +149,8 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         request.content,
         mode=request.mode,
         personas=request.personas,
-        mapping_option=request.mapping_option
+        mapping_option=request.mapping_option,
+        chairman_model=request.chairman_model
     )
 
     # Add assistant message with all stages
@@ -186,6 +194,11 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
+
+    logger.info(
+        "message stream conversation=%s mode=%s chairman=%s",
+        conversation_id, request.mode, request.chairman_model or "default"
+    )
 
     async def event_generator():
         try:
@@ -237,7 +250,8 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 request.content,
                 stage1_results,
                 stage2_results,
-                mode=request.mode
+                mode=request.mode,
+                chairman_model=request.chairman_model
             ))
             while not stage3_task.done():
                 yield ": keep-alive\n\n"
@@ -270,9 +284,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 
         except Exception as e:
-            import traceback
-            print(f"Error in message stream: {e}")
-            traceback.print_exc()
+            logger.exception("message stream failed conversation=%s", conversation_id)
             # Send error event
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
@@ -308,6 +320,7 @@ if DEPLOY_PREFIX:
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("Starting LLM Council API on :8001 prefix=%s", DEPLOY_PREFIX or "/")
     uvicorn.run(
         asgi_app,
         host="0.0.0.0",

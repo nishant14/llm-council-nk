@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import CopyButton from './CopyButton';
+import { buildStage1Html } from '../utils/exportRichText';
 import './Stage1.css';
 
 export default function Stage1({ responses }) {
@@ -11,7 +13,10 @@ export default function Stage1({ responses }) {
 
   return (
     <div className="stage stage1">
-      <h3 className="stage-title">Stage 1: Individual Responses</h3>
+      <div className="stage-header">
+        <h3 className="stage-title">Stage 1: Individual Responses</h3>
+        <CopyButton getHtml={() => buildStage1Html(responses)} label="Copy stage" />
+      </div>
 
       <div className="tabs">
         {responses.map((resp, index) => (

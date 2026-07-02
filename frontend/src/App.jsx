@@ -73,7 +73,7 @@ function App() {
   const handleSendMessage = async (content, options = {}) => {
     if (!currentConversationId) return;
 
-    const { mode = 'standard', personas = null, mappingOption = 'round_robin' } = options;
+    const { mode = 'standard', personas = null, mappingOption = 'round_robin', chairmanModel = '' } = options;
 
     setIsLoading(true);
     try {
@@ -105,7 +105,7 @@ function App() {
       }));
 
       // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, mode, personas, mappingOption, (eventType, event) => {
+      await api.sendMessageStream(currentConversationId, content, mode, personas, mappingOption, chairmanModel, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
             setCurrentConversation((prev) => {
