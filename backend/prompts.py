@@ -61,8 +61,10 @@ Your task:
    - Accuracy/correctness: Is the response factually correct, free of hallucinations or errors?
    - Depth & completeness: Does it thoroughly cover the relevant aspects of the question, without being superficial?
    - Actionability/practical value: Does it give the user something concretely usable, not just abstract discussion?
-2. Evaluate purely on these criteria. Do not favor a response for being longer or more elaborately styled if it isn't more substantive. The responses are anonymized — do not assume any response is your own and do not treat it differently if you suspect it is.
-3. Then, at the very end of your response, provide a final ranking informed by your scoring above.
+2. Be a demanding, adversarial critic — do NOT default to agreement or praise. Reserve 5/5 for a criterion with genuinely no discernible weakness; if you find yourself handing out straight 5/5s, look harder, because there is almost always something missing, oversimplified, or asserted without support.
+3. For each response, identify the SINGLE most significant flaw, blindspot, or weakness — something it gets wrong, overlooks, assumes without justification, or where its argument is most vulnerable. State it on its own line beginning exactly with "Major flaw/blindspot:". Every response, however strong, has a weakest point — name it specifically rather than softening it into praise.
+4. Evaluate purely on these criteria. Do not favor a response for being longer or more elaborately styled if it isn't more substantive. The responses are anonymized — do not assume any response is your own and do not treat it differently if you suspect it is.
+5. Then, at the very end of your response, provide a final ranking informed by your scoring above.
 
 IMPORTANT: Your final ranking MUST be formatted EXACTLY as follows:
 - Start with the line "FINAL RANKING:" (all caps, with colon)
@@ -76,16 +78,19 @@ Response A:
 - Accuracy/correctness: 4/5 - mostly correct, one minor factual slip
 - Depth & completeness: 3/5 - covers X but misses Y
 - Actionability/practical value: 4/5 - gives clear next steps
+Major flaw/blindspot: Assumes the user already has Z in place; if they don't, the recommended approach breaks and the response never acknowledges this dependency.
 
 Response B:
 - Accuracy/correctness: 5/5 - fully accurate
 - Depth & completeness: 3/5 - lacks depth on Z
 - Actionability/practical value: 3/5 - mostly conceptual, fewer concrete steps
+Major flaw/blindspot: Stays abstract and never commits to a concrete recommendation, leaving the user without a clear path forward.
 
 Response C:
 - Accuracy/correctness: 5/5 - fully accurate
 - Depth & completeness: 5/5 - most comprehensive
 - Actionability/practical value: 5/5 - highly actionable
+Major flaw/blindspot: Optimizes for the happy path and ignores failure modes / edge cases that could bite the user at scale.
 
 FINAL RANKING:
 1. Response C
@@ -108,8 +113,10 @@ Your task:
    - Accuracy/correctness: Is the response factually correct, free of hallucinations or errors?
    - Depth & completeness: Does it thoroughly cover the relevant aspects of the question from its persona's perspective, without being superficial?
    - Actionability/practical value: Does it give the user something concretely usable from its persona's perspective, not just abstract discussion?
-2. Evaluate purely on these criteria. Do not favor a response for being longer or more elaborately styled if it isn't more substantive. The responses are anonymized — do not assume any response is your own and do not treat it differently if you suspect it is.
-3. Then, at the very end of your response, provide a final ranking informed by your scoring above.
+2. Be a demanding, adversarial critic — do NOT default to agreement or praise. Reserve 5/5 for a criterion with genuinely no discernible weakness; if you find yourself handing out straight 5/5s, look harder, because there is almost always something missing, oversimplified, or asserted without support.
+3. For each response, identify the SINGLE most significant flaw, blindspot, or weakness — something it gets wrong, overlooks, assumes without justification, or where its argument is most vulnerable (including where its persona lens caused it to miss something important). State it on its own line beginning exactly with "Major flaw/blindspot:". Every response, however strong, has a weakest point — name it specifically rather than softening it into praise.
+4. Evaluate purely on these criteria. Do not favor a response for being longer or more elaborately styled if it isn't more substantive. The responses are anonymized — do not assume any response is your own and do not treat it differently if you suspect it is.
+5. Then, at the very end of your response, provide a final ranking informed by your scoring above.
 
 IMPORTANT: Your final ranking MUST be formatted EXACTLY as follows:
 - Start with the line "FINAL RANKING:" (all caps, with colon)
@@ -123,11 +130,13 @@ Response A (Security Architect):
 - Accuracy/correctness: 4/5 - solid security analysis, one outdated claim
 - Depth & completeness: 4/5 - good security coverage but lacks financial detail
 - Actionability/practical value: 4/5 - clear mitigations suggested
+Major flaw/blindspot: Treats security in isolation and never weighs it against the cost/UX trade-offs the decision actually hinges on.
 
 Response B (UX Designer):
 - Accuracy/correctness: 5/5 - accurate UX guidance
 - Depth & completeness: 3/5 - excellent UX detail but misses security concerns
 - Actionability/practical value: 4/5 - concrete design recommendations
+Major flaw/blindspot: Ignores the security exposure its own recommendations introduce, so the guidance is unsafe as written.
 
 FINAL RANKING:
 1. Response B
@@ -150,6 +159,9 @@ Your task as Chairman is to synthesize all of this information into a single, co
 - The individual responses and their insights
 - The peer rankings and what they reveal about response quality
 - Any patterns of agreement or disagreement
+- The "Major flaw/blindspot" that reviewers raised about each response in Stage 2. For each significant flaw or blindspot: if another response already addresses or compensates for it, resolve it in your synthesis and briefly note how it is covered. If it is NOT adequately addressed by any response, do not paper over it.
+
+End your answer with a section titled "Open Points & Unresolved Concerns" (as a markdown heading) that lists any flaws, blindspots, or disagreements the council did not resolve and that warrant further discussion or a decision from the user. If there are genuinely none, state that explicitly.
 
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
 
@@ -170,5 +182,8 @@ Please consider:
 - Each persona's Weight (shown above, on a 0-1 scale, summing to 1 across all personas): this is the relative importance the user has assigned to that perspective. Proportionally emphasize higher-weighted perspectives in your synthesis, while still substantively addressing lower-weighted ones — do not drop them entirely.
 - Explicitly highlight any trade-offs or conflicts between these perspectives and resolve them in light of their weights.
 - The peer rankings and critiques.
+- The "Major flaw/blindspot" that reviewers raised about each response in Stage 2. For each significant flaw or blindspot: if another persona's response already addresses or compensates for it, resolve it in your synthesis and briefly note how it is covered. If it is NOT adequately addressed by any perspective, do not paper over it.
+
+End your answer with a section titled "Open Points & Unresolved Concerns" (as a markdown heading) that lists any flaws, blindspots, or cross-perspective disagreements the council did not resolve and that warrant further discussion or a decision from the user. If there are genuinely none, state that explicitly.
 
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom, reflects the user's stated priorities via the weights, and resolves conflicts between the perspectives:"""
