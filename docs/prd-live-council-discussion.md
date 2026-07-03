@@ -697,7 +697,7 @@ Implement as **Phase 7** (after Phase 6): the mechanic behind its config flag, t
 ## 14. Open Questions (decide before/while building; defaults given)
 
 1. **Should personas see each persona's numeric weight?** Default **no** — weights inform only the Chair's rulings; showing them to personas would let them defer pre-emptively to whoever is weighted highest instead of arguing their case.
-2. **Structured-call visibility (conflict checks, decision reviews).** Default: not in the transcript, but stored in `debug_records` and inspectable — consistent with the project's "all raw outputs inspectable" transparency principle. UI toggle is a Phase 6 item.
+2. **Structured-call visibility (conflict checks, decision reviews).** Default: not in the transcript, but stored in `debug_records` and inspectable — nothing the system decides should be un-auditable. UI toggle is a Phase 6 item.
 3. **Re-opening resolved points beyond the single challenge exchange.** Default v1: the one revise-or-defend challenge turn, plus wrap-up Q&A; full re-litigation is a Phase 6 candidate (budget protection).
 4. **Should in-progress and completed discussions be visually distinguished in the sidebar?** Default: yes — a status badge per row (in progress at a named step / completed / aborted) so the user can tell at a glance which sessions are waiting on them.
 5. **Minimum viable persona count.** Default 3 (a 2-persona "discussion" is a debate; still allow it, but the suggestion prompt targets 3–5).
