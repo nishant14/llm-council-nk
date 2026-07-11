@@ -1,6 +1,6 @@
 """FastAPI backend for LLM Council."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +16,7 @@ import os
 from . import storage
 from .config import PERSONA_MODEL_CHOICES
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings, suggest_personas
+from .file_extractor import extract_file as extract_file_content, SUPPORTED_EXTENSIONS
 from .logging_config import configure_logging
 
 configure_logging()
@@ -37,6 +38,12 @@ class CreateConversationRequest(BaseModel):
     pass
 
 
+class AttachmentData(BaseModel):
+    """File attachment metadata + extracted text, sent alongside the message content."""
+    file_name: str
+    extracted_text: str
+
+
 class SendMessageRequest(BaseModel):
     """Request to send a message in a conversation."""
     content: str
@@ -45,6 +52,7 @@ class SendMessageRequest(BaseModel):
     mapping_option: Optional[str] = "round_robin"
     # Model for Stage 3 synthesis; None falls back to CHAIRMAN_MODEL
     chairman_model: Optional[str] = None
+    attachment: Optional[AttachmentData] = None
 
 
 class SuggestPersonasRequest(BaseModel):
@@ -66,6 +74,21 @@ class Conversation(BaseModel):
     created_at: str
     title: str
     messages: List[Dict[str, Any]]
+
+
+@app.post("/api/extract-file")
+async def extract_file_endpoint(file: UploadFile = File(...)):
+    """Extract text from an uploaded file (txt, docx, pdf, or image)."""
+    MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+    data = await file.read()
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
+    ext = (file.filename or '').rsplit('.', 1)[-1].lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(status_code=415, detail=f"Unsupported file type: .{ext}")
+    logger.info("extract-file name=%s size=%d", file.filename, len(data))
+    result = await extract_file_content(file.filename or '', data, file.content_type or '')
+    return {"file_name": file.filename, **result}
 
 
 @app.get("/healthz")
@@ -136,17 +159,29 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
-    # Add user message
-    storage.add_user_message(conversation_id, request.content)
+    # Build effective_query: typed content + extracted attachment text (if any)
+    effective_query = request.content
+    if request.attachment:
+        effective_query = (
+            f"{request.content}\n\n---\n"
+            f"[Attached file: {request.attachment.file_name}]\n"
+            f"{request.attachment.extracted_text}"
+        )
 
-    # If this is the first message, generate a title
+    # Store only the typed query + file name (not the full extracted text)
+    storage.add_user_message(
+        conversation_id, request.content,
+        attachment_name=request.attachment.file_name if request.attachment else None
+    )
+
+    # If this is the first message, generate a title from the typed query only
     if is_first_message:
         title = await generate_conversation_title(request.content)
         storage.update_conversation_title(conversation_id, title)
 
     # Run the 3-stage council process
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-        request.content,
+        effective_query,
         mode=request.mode,
         personas=request.personas,
         mapping_option=request.mapping_option,
@@ -195,17 +230,30 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
+    # Build effective_query: typed content + extracted attachment text (if any)
+    effective_query = request.content
+    if request.attachment:
+        effective_query = (
+            f"{request.content}\n\n---\n"
+            f"[Attached file: {request.attachment.file_name}]\n"
+            f"{request.attachment.extracted_text}"
+        )
+
     logger.info(
-        "message stream conversation=%s mode=%s chairman=%s",
-        conversation_id, request.mode, request.chairman_model or "default"
+        "message stream conversation=%s mode=%s chairman=%s attachment=%s",
+        conversation_id, request.mode, request.chairman_model or "default",
+        request.attachment.file_name if request.attachment else None
     )
 
     async def event_generator():
         try:
-            # Add user message
-            storage.add_user_message(conversation_id, request.content)
+            # Store only the typed query + file name (not the full extracted text)
+            storage.add_user_message(
+                conversation_id, request.content,
+                attachment_name=request.attachment.file_name if request.attachment else None
+            )
 
-            # Start title generation in parallel (don't await yet)
+            # Start title generation in parallel from typed query only
             title_task = None
             if is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
@@ -213,7 +261,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Stage 1: Collect responses
             yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
             stage1_task = asyncio.create_task(stage1_collect_responses(
-                request.content,
+                effective_query,
                 mode=request.mode,
                 personas=request.personas,
                 mapping_option=request.mapping_option
@@ -232,7 +280,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
             stage2_task = asyncio.create_task(stage2_collect_rankings(
-                request.content,
+                effective_query,
                 stage1_results,
                 mode=request.mode,
                 council_models=stage2_council_models
@@ -247,7 +295,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Stage 3: Synthesize final answer
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
             stage3_task = asyncio.create_task(stage3_synthesize_final(
-                request.content,
+                effective_query,
                 stage1_results,
                 stage2_results,
                 mode=request.mode,

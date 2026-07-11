@@ -15,7 +15,7 @@ OPENROUTER_SEMAPHORE = asyncio.Semaphore(3)
 
 async def query_model(
     model: str,
-    messages: List[Dict[str, str]],
+    messages: List[Dict[str, Any]],
     timeout: float = 30.0
 ) -> Optional[Dict[str, Any]]:
     """

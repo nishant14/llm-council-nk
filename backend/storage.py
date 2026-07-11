@@ -107,22 +107,23 @@ def list_conversations() -> List[Dict[str, Any]]:
     return conversations
 
 
-def add_user_message(conversation_id: str, content: str):
+def add_user_message(conversation_id: str, content: str, attachment_name: Optional[str] = None):
     """
     Add a user message to a conversation.
 
     Args:
         conversation_id: Conversation identifier
-        content: User message content
+        content: User message content (typed query only, not including extracted file text)
+        attachment_name: Optional file name of an attachment (for display; full text not stored)
     """
     conversation = get_conversation(conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
 
-    conversation["messages"].append({
-        "role": "user",
-        "content": content
-    })
+    msg: Dict[str, Any] = {"role": "user", "content": content}
+    if attachment_name:
+        msg["attachment"] = {"file_name": attachment_name}
+    conversation["messages"].append(msg)
 
     save_conversation(conversation)
 

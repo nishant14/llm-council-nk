@@ -73,12 +73,16 @@ function App() {
   const handleSendMessage = async (content, options = {}) => {
     if (!currentConversationId) return;
 
-    const { mode = 'standard', personas = null, mappingOption = 'round_robin', chairmanModel = '' } = options;
+    const { mode = 'standard', personas = null, mappingOption = 'round_robin', chairmanModel = '', attachment = null } = options;
 
     setIsLoading(true);
     try {
-      // Optimistically add user message to UI
-      const userMessage = { role: 'user', content };
+      // Optimistically add user message to UI (include attachment badge metadata)
+      const userMessage = {
+        role: 'user',
+        content,
+        attachment: attachment ? { file_name: attachment.file_name } : null,
+      };
       setCurrentConversation((prev) => ({
         ...prev,
         messages: [...prev.messages, userMessage],
@@ -105,7 +109,7 @@ function App() {
       }));
 
       // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, mode, personas, mappingOption, chairmanModel, (eventType, event) => {
+      await api.sendMessageStream(currentConversationId, content, mode, personas, mappingOption, chairmanModel, attachment, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
             setCurrentConversation((prev) => {

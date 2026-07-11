@@ -497,3 +497,97 @@
 .footer-link-btn:hover {
   color: #357abd;
 }
+
+/* File attachment UI */
+
+.attachment-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 2px;
+  flex-wrap: wrap;
+}
+
+.attach-button {
+  background: none;
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  color: #718096;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.attach-button:hover:not(:disabled) {
+  border-color: #4a90e2;
+  color: #4a90e2;
+}
+
+.attach-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.attachment-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ebf8ff;
+  border: 1px solid #bee3f8;
+  border-radius: 6px;
+  color: #2b6cb0;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.attachment-pill.loading {
+  background: #f7fafc;
+  border-color: #e2e8f0;
+  color: #718096;
+}
+
+.attachment-pill.error {
+  background: #fff5f5;
+  border-color: #fed7d7;
+  color: #c53030;
+}
+
+.attachment-pill .truncated-warning {
+  color: #d69e2e;
+  font-size: 11px;
+}
+
+.attachment-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.6;
+  padding: 0 0 0 2px;
+}
+
+.attachment-remove:hover {
+  opacity: 1;
+}
+
+.spinner-sm {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+
+/* Attachment badge shown inside the user message bubble */
+.attachment-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #ebf8ff;
+  border: 1px solid #bee3f8;
+  border-radius: 6px;
+  color: #2b6cb0;
+  font-size: 12px;
+  margin-top: 6px;
+  padding: 3px 8px;
+}

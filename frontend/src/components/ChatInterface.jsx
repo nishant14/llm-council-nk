@@ -25,8 +25,11 @@ export default function ChatInterface({
   const [errorMessage, setErrorMessage] = useState('');
   const [availableModels, setAvailableModels] = useState([]);
   const [chairmanModel, setChairmanModel] = useState(''); // '' = backend default
+  // attachment: null | {file_name, extracted_text, truncated, loading, error}
+  const [attachment, setAttachment] = useState(null);
 
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -48,6 +51,7 @@ export default function ChatInterface({
     setStep(1);
     setPersonas([]);
     setErrorMessage('');
+    setAttachment(null);
   }, [conversation?.id]);
 
   const withDefaults = (personaList) => {
@@ -71,12 +75,35 @@ export default function ChatInterface({
     .map((tier) => ({ tier, models: availableModels.filter((m) => m.tier === tier) }))
     .filter((g) => g.models.length > 0);
 
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ''; // allow re-selecting the same file
+    setAttachment({ file_name: file.name, loading: true, error: null });
+    try {
+      const result = await api.extractFile(file);
+      setAttachment({
+        file_name: result.file_name,
+        extracted_text: result.extracted_text,
+        truncated: result.truncated,
+        loading: false,
+        error: null,
+      });
+    } catch (err) {
+      setAttachment({ file_name: file.name, loading: false, error: err.message });
+    }
+  };
+
   const handleSuggestPersonas = async () => {
     if (!input.trim() || isSuggestingPersonas) return;
     setIsSuggestingPersonas(true);
     setErrorMessage('');
     try {
-      const result = await api.suggestPersonas(input);
+      // Include file content in persona suggestion so personas are relevant to the attachment
+      const queryForPersonas = attachment?.extracted_text
+        ? `${input}\n\n[Attached file: ${attachment.file_name}]\n${attachment.extracted_text}`
+        : input;
+      const result = await api.suggestPersonas(queryForPersonas);
       setPersonas(withDefaults(result.personas || []));
       setStep(2);
     } catch (err) {
@@ -107,13 +134,14 @@ export default function ChatInterface({
 
       // Standard send or persona run from Step 2
       const options = mode === 'persona'
-        ? { mode: 'persona', personas, mappingOption, chairmanModel }
-        : { mode: 'standard', chairmanModel };
+        ? { mode: 'persona', personas, mappingOption, chairmanModel, attachment }
+        : { mode: 'standard', chairmanModel, attachment };
 
       onSendMessage(input, options);
       setInput('');
       setStep(1);
       setPersonas([]);
+      setAttachment(null);
     }
   };
 
@@ -152,6 +180,9 @@ export default function ChatInterface({
                     <div className="markdown-content">
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
+                    {msg.attachment?.file_name && (
+                      <div className="attachment-badge">📎 {msg.attachment.file_name}</div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -291,10 +322,50 @@ export default function ChatInterface({
                 disabled={isLoading}
                 rows={3}
               />
+
+              {/* File attachment strip */}
+              <div className="attachment-strip">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".txt,.docx,.pdf,.png,.jpg,.jpeg,.gif,.webp"
+                  style={{ display: 'none' }}
+                  onChange={handleFileChange}
+                />
+                {!attachment && (
+                  <button
+                    type="button"
+                    className="attach-button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isLoading}
+                  >
+                    📎 Attach file
+                  </button>
+                )}
+                {attachment?.loading && (
+                  <div className="attachment-pill loading">
+                    <div className="spinner spinner-sm" /> Extracting…
+                  </div>
+                )}
+                {attachment && !attachment.loading && !attachment.error && (
+                  <div className="attachment-pill">
+                    📎 {attachment.file_name}
+                    {attachment.truncated && <span className="truncated-warning"> ⚠️ truncated</span>}
+                    <button type="button" className="attachment-remove" onClick={() => setAttachment(null)}>×</button>
+                  </div>
+                )}
+                {attachment?.error && (
+                  <div className="attachment-pill error">
+                    ⚠️ {attachment.error}
+                    <button type="button" className="attachment-remove" onClick={() => setAttachment(null)}>×</button>
+                  </div>
+                )}
+              </div>
+
               <button
                 type="submit"
                 className="send-button"
-                disabled={!input.trim() || isLoading}
+                disabled={!input.trim() || isLoading || attachment?.loading}
               >
                 {mode === 'standard' ? 'Send' : 'Suggest Personas'}
               </button>
@@ -307,6 +378,17 @@ export default function ChatInterface({
                 <h3>Configure Council Personas</h3>
                 <p>Edit the generated personas and their constraints below before running the council.</p>
               </div>
+
+              {/* Show attached file in step 2 so the user knows it will be included */}
+              {attachment && !attachment.loading && !attachment.error && (
+                <div className="attachment-strip">
+                  <div className="attachment-pill">
+                    📎 {attachment.file_name}
+                    {attachment.truncated && <span className="truncated-warning"> ⚠️ truncated</span>}
+                    <button type="button" className="attachment-remove" onClick={() => setAttachment(null)}>×</button>
+                  </div>
+                </div>
+              )}
 
               <div className="persona-cards-grid">
                 {personas.map((persona, index) => (

@@ -1,5 +1,17 @@
 """Central repository for all LLM prompt templates used in LLM Council."""
 
+# Prompt sent to Gemini Flash (with the image as a second content block) to
+# produce a text description of an uploaded image for the council pipeline.
+IMAGE_DESCRIPTION_PROMPT = (
+    "Analyze this image thoroughly and describe all of its content in detail. "
+    "Include: any text visible in the image (transcribe it verbatim), data in "
+    "tables or charts (values and structure), diagrams or visual layouts, key "
+    "subjects or objects, and any other information that would be important for "
+    "an expert to understand and reason about this image. Be comprehensive — "
+    "your description will be the sole representation of this image for other "
+    "language models that cannot see it."
+)
+
 # Prompt used to suggest 3 expert personas for a given query (Stage 0)
 PERSONA_SUGGESTION_PROMPT = """You are an assistant that analyzes a user's question and suggests 3 expert personas (perspectives) that should analyze this question to provide a comprehensive, multi-dimensional answer.
 

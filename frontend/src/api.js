@@ -109,6 +109,26 @@ export const api = {
   },
 
   /**
+   * Upload a file and extract its text content for use as an attachment.
+   * @param {File} file - The file to extract
+   * @returns {Promise<{file_name, extracted_text, truncated, file_type}>}
+   */
+  async extractFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    // No Content-Type header — browser sets the multipart boundary automatically
+    const response = await fetch(`${API_BASE}/api/extract-file`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to extract file');
+    }
+    return response.json();
+  },
+
+  /**
    * Send a message and receive streaming updates.
    * @param {string} conversationId - The conversation ID
    * @param {string} content - The message content
@@ -116,10 +136,11 @@ export const api = {
    * @param {Array} personas - The list of custom personas
    * @param {string} mappingOption - Model mapping option ('round_robin' or 'matrix')
    * @param {string} chairmanModel - Model for Stage 3 synthesis ('' = backend default)
+   * @param {Object|null} attachment - {file_name, extracted_text} or null
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, mode, personas, mappingOption, chairmanModel, onEvent) {
+  async sendMessageStream(conversationId, content, mode, personas, mappingOption, chairmanModel, attachment, onEvent) {
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
@@ -132,7 +153,8 @@ export const api = {
           mode,
           personas,
           mapping_option: mappingOption,
-          chairman_model: chairmanModel || null
+          chairman_model: chairmanModel || null,
+          attachment: attachment || null,
         }),
       }
     );
